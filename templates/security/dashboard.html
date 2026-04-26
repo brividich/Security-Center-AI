@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Security Center AI</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: #f6f7f9; color: #17202a; }
+    header { background: #101820; color: white; padding: 24px 32px; }
+    main { padding: 28px 32px; max-width: 1200px; margin: auto; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .card { background: white; border: 1px solid #d9dee5; border-radius: 8px; padding: 18px; }
+    table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #d9dee5; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e7ebf0; text-align: left; font-size: 14px; }
+    th { background: #edf1f5; }
+    .critical { color: #b42318; font-weight: 700; }
+    .warning { color: #b54708; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Security Center AI</h1>
+    <p>Security Report Intelligence MVP</p>
+  </header>
+  <main>
+    <section class="grid">
+      <div class="card"><strong>{{ reports_count }}</strong><br>Reports</div>
+      <div class="card"><strong>{{ alerts|length }}</strong><br>Recent alerts</div>
+      <div class="card"><strong>{{ evidence_count }}</strong><br>Evidence containers</div>
+    </section>
+    <h2>Recent alerts</h2>
+    <table>
+      <thead><tr><th>Severity</th><th>Title</th><th>Status</th><th>Trace</th></tr></thead>
+      <tbody>
+      {% for alert in alerts %}
+        <tr>
+          <td class="{{ alert.severity }}">{{ alert.get_severity_display }}</td>
+          <td>{{ alert.title }}</td>
+          <td>{{ alert.get_status_display }}</td>
+          <td>{{ alert.decision_trace }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">No alerts yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
