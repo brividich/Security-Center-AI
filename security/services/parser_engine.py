@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.utils import timezone
 
 from security.models import (
@@ -25,17 +27,26 @@ def run_pending_parsers():
             continue
         try:
             parsed = parser.parse(item)
+            report_date = _parse_report_date(parsed.payload.get("report_date")) or timezone.localdate()
+            report_dedup_key = parsed.payload.get("dedup_key")
+            if report_dedup_key and SecurityReport.objects.filter(source=item.source, parsed_payload__dedup_key=report_dedup_key).exists():
+                item.parse_status = ParseStatus.PARSED
+                item.save(update_fields=["parse_status"])
+                parsed_count += 1
+                continue
             report = SecurityReport.objects.create(
                 source=item.source,
                 mailbox_message=item if hasattr(item, "subject") else None,
                 source_file=item if isinstance(item, SecuritySourceFile) else None,
                 report_type=parsed.report_type,
                 title=parsed.title,
+                report_date=report_date,
                 parser_name=parsed.parser_name,
                 parsed_payload=parsed.payload,
             )
             for name, value in parsed.metrics.items():
-                SecurityReportMetric.objects.create(report=report, name=name, value=value)
+                if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+                    SecurityReportMetric.objects.create(report=report, name=name, value=float(value))
             for record in parsed.records:
                 _persist_record(item.source, report, record)
             item.parse_status = ParseStatus.PARSED
@@ -102,8 +113,11 @@ def _persist_record(source, report, record):
         _create_event(source, report, "backup_job", severity, dedup_hash, payload, occurred_at=occurred_at)
     else:
         payload = record.payload
-        dedup_hash = make_hash(source.pk, record.record_type, payload)
-        _create_event(source, report, record.record_type, Severity.INFO, dedup_hash, payload)
+        dedup_hash = make_hash(source.pk, payload.get("dedup_key") or record.record_type, payload)
+        if SecurityEventRecord.objects.filter(source=source, dedup_hash=dedup_hash, event_type=record.record_type).exists():
+            return
+        severity = payload.get("severity", Severity.INFO) if payload.get("alert_candidate") else Severity.INFO
+        _create_event(source, report, record.record_type, severity, dedup_hash, payload)
 
 
 def _create_event(source, report, event_type, severity, dedup_hash, payload, occurred_at=None):
@@ -130,3 +144,12 @@ def _parse_iso_datetime(value):
     if timezone.is_naive(parsed):
         return timezone.make_aware(parsed, timezone.get_current_timezone())
     return parsed
+
+
+def _parse_report_date(value):
+    if not value:
+        return None
+    try:
+        return timezone.datetime.fromisoformat(str(value)).date()
+    except ValueError:
+        return None

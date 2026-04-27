@@ -11,6 +11,22 @@
     <div class="sec-fact"><span>Errors</span><strong>{% if last_pipeline_run.errors %}{{ last_pipeline_run.errors|length }}{% else %}0{% endif %}</strong></div>
   </div>
   {% if last_pipeline_run.errors %}<pre style="margin-top: 12px;">{{ last_pipeline_run.errors }}</pre>{% endif %}
+  {% if last_pipeline_run.parsed_reports %}
+    <div style="margin-top: 14px;">
+      <div class="sec-section-head"><h2>Parsed reports</h2><span class="sec-badge">latest</span></div>
+      {% for report in last_pipeline_run.parsed_reports %}
+        <div class="sec-fact" style="margin-top: 8px;">
+          <span>{{ report.parser_name }} / {{ report.report_type }}</span>
+          <strong>{% if report.period_start %}{{ report.period_start }} - {{ report.period_end }}{% else %}{{ report.report_date|default:"period unavailable" }}{% endif %}</strong>
+          <div style="margin-top: 8px;">
+            {% for kpi in report.kpis %}<span class="sec-badge">{{ kpi.name }}: {{ kpi.value }}</span>{% endfor %}
+          </div>
+          <div style="margin-top: 8px;">Records: {{ report.records_count }} / Alert candidates: {{ report.alert_candidates|length }}</div>
+          {% if report.parse_warnings %}<pre style="margin-top: 8px;">{{ report.parse_warnings }}</pre>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
 {% else %}
   <p class="sec-empty">No pipeline run recorded in this browser session.</p>
 {% endif %}
