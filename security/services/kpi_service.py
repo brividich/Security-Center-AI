@@ -1,7 +1,7 @@
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from security.models import BackupJobRecord, SecurityEventRecord, SecurityKpiSnapshot
+from security.models import BackupJobRecord, SecurityEventRecord, SecurityKpiSnapshot, SecurityReportMetric
 
 
 def build_daily_kpi_snapshots(snapshot_date=None):
@@ -17,7 +17,26 @@ def build_daily_kpi_snapshots(snapshot_date=None):
     for row in rows:
         _upsert_snapshot(row["source"], snapshot_date, row["event_type"], row["total"])
         created += 1
+    created += _build_report_metric_snapshots(snapshot_date)
     created += _build_backup_kpi_snapshots(snapshot_date, start, end)
+    return created
+
+
+def _build_report_metric_snapshots(snapshot_date):
+    created = 0
+    metric_rows = (
+        SecurityReportMetric.objects.filter(report__report_date=snapshot_date)
+        .values("report__source", "name")
+        .annotate(total=Count("id"))
+    )
+    for row in metric_rows:
+        values = SecurityReportMetric.objects.filter(
+            report__report_date=snapshot_date,
+            report__source=row["report__source"],
+            name=row["name"],
+        ).values_list("value", flat=True)
+        _upsert_snapshot(row["report__source"], snapshot_date, row["name"], sum(values))
+        created += 1
     return created
 
 

@@ -21,6 +21,8 @@ def evaluate_security_rules():
             _evaluate_backup(event)
         elif event.event_type in {"vpn_auth_denied", "vpn_auth_allowed"}:
             _evaluate_vpn(event)
+        elif event.event_type == "watchguard_alert_candidate":
+            _evaluate_watchguard_alert_candidate(event)
         else:
             event.decision_trace = {"decision": "kpi_only", "reason": "No alert rule matched"}
             event.save(update_fields=["decision_trace"])
@@ -143,6 +145,34 @@ def _evaluate_vpn(event):
     else:
         event.decision_trace = {"decision": "kpi_only", "reason": "VPN volume below threshold", "count": count, "threshold": threshold}
     event.save(update_fields=["decision_trace"])
+
+
+def _evaluate_watchguard_alert_candidate(event):
+    payload = event.payload
+    trace = {
+        "decision": "alert",
+        "rule": "WatchGuard parser-generated anti-noise alert candidate",
+        "candidate_type": payload.get("type"),
+        "reason": payload.get("reason"),
+    }
+    alert, alert_created = _get_or_create_active_alert(
+        source=event.source,
+        event=event,
+        title=payload.get("title") or "WatchGuard alert candidate",
+        severity=payload.get("severity", Severity.WARNING),
+        dedup_hash=event.dedup_hash,
+        decision_trace=trace,
+    )
+    trace["alert_created"] = alert_created
+    _store_alert_decision_trace(alert, trace, alert_created)
+    event.decision_trace = trace
+    event.save(update_fields=["decision_trace"])
+    build_evidence_container(event.source, alert.title, alert=alert, event=event, decision_trace=trace)
+    SecurityAlertActionLog.objects.create(
+        alert=alert,
+        action="alert_created" if alert_created else "alert_reused",
+        details=trace,
+    )
 
 
 def _get_or_create_active_alert(source, event, title, severity, dedup_hash, decision_trace):

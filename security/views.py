@@ -166,6 +166,7 @@ def pipeline_run(request, action):
     try:
         if action in {"run-parsers", "full"}:
             result["reports_parsed"] = run_pending_parsers()
+            result["parsed_reports"] = _latest_pipeline_reports()
         if action in {"evaluate-rules", "full"}:
             evaluated_event_ids = list(SecurityEventRecord.objects.filter(decision_trace={}).values_list("id", flat=True))
             result["rules_evaluated"] = evaluate_security_rules()
@@ -183,6 +184,26 @@ def pipeline_run(request, action):
     if request.headers.get("HX-Request"):
         return render(request, "security/partials/pipeline_result.html", {"last_pipeline_run": result})
     return redirect(reverse("security:pipeline"))
+
+
+def _latest_pipeline_reports():
+    reports = []
+    for report in SecurityReport.objects.prefetch_related("metrics", "events").order_by("-created_at")[:5]:
+        payload = report.parsed_payload or {}
+        reports.append(
+            {
+                "parser_name": report.parser_name,
+                "report_type": report.report_type,
+                "period_start": payload.get("period_start"),
+                "period_end": payload.get("period_end"),
+                "report_date": payload.get("report_date"),
+                "kpis": list(report.metrics.order_by("name").values("name", "value")[:12]),
+                "records_count": len(payload.get("records", [])),
+                "alert_candidates": payload.get("alerts_candidates", [])[:8],
+                "parse_warnings": payload.get("parse_warnings", []),
+            }
+        )
+    return reports
 
 
 def _decorate_alerts(alerts):
