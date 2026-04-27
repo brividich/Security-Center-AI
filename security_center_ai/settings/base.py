@@ -7,9 +7,21 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"true", "1", "yes", "on"}
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-me")
-DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
-ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")]
+DEBUG = env_bool("DJANGO_DEBUG", False)
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if host.strip()
+]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -52,6 +64,19 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "security_center_ai.wsgi.application"
 ASGI_APPLICATION = "security_center_ai.asgi.application"
+
+database_name = os.getenv("DATABASE_NAME", "db.sqlite3")
+if os.getenv("DATABASE_ENGINE", "django.db.backends.sqlite3") == "django.db.backends.sqlite3":
+    database_path = Path(database_name)
+    if not database_path.is_absolute():
+        database_name = BASE_DIR / database_path
+
+DATABASES = {
+    "default": {
+        "ENGINE": os.getenv("DATABASE_ENGINE", "django.db.backends.sqlite3"),
+        "NAME": database_name,
+    }
+}
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "Europe/Rome")

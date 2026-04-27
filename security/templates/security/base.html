@@ -25,6 +25,10 @@
         <a class="sec-nav-item {% if request.resolver_match.url_name == 'tickets_list' %}sec-active{% endif %}" href="{% url 'security:tickets_list' %}"><span>◫</span>Remediation</a>
         <a class="sec-nav-item {% if request.resolver_match.url_name == 'kpis' %}sec-active{% endif %}" href="{% url 'security:kpis' %}"><span>⌁</span>KPI Explorer</a>
         <a class="sec-nav-item {% if request.resolver_match.url_name == 'pipeline' %}sec-active{% endif %}" href="{% url 'security:pipeline' %}"><span>⇄</span>Pipeline</a>
+        <a class="sec-nav-item {% if request.resolver_match.url_name|slice:':12' == 'admin_config' %}sec-active{% endif %}" href="{% url 'security:admin_config' %}"><span>*</span>Configurazione</a>
+        <a class="sec-nav-item {% if request.resolver_match.url_name == 'admin_diagnostics' %}sec-active{% endif %}" href="{% url 'security:admin_diagnostics' %}"><span>+</span>Diagnostics</a>
+        <a class="sec-nav-item {% if request.resolver_match.url_name == 'help' %}sec-active{% endif %}" href="{% url 'security:help' %}"><span>?</span>Help</a>
+        <a class="sec-nav-item {% if request.resolver_match.url_name == 'admin_docs' %}sec-active{% endif %}" href="{% url 'security:admin_docs' %}"><span>i</span>Docs</a>
         <a class="sec-nav-item" href="/api/"><span>{ }</span>API</a>
         <a class="sec-nav-item" href="/admin/"><span>⚙</span>Admin</a>
       </nav>

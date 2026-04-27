@@ -1,0 +1,96 @@
+{% extends "security/base.html" %}
+
+{% block title %}Help - Security Center AI{% endblock %}
+{% block page_icon %}?{% endblock %}
+{% block page_marker %}Security Center Help{% endblock %}
+{% block page_title %}Help / Operating Guide{% endblock %}
+
+{% block content %}
+<div class="sec-grid sec-two-col">
+  <section class="sec-panel">
+    <div class="sec-section-head">
+      <h2>Overview</h2>
+    </div>
+    <p>Security Center AI is a report intelligence portal. It turns reports, emails, and uploads into parsed metrics, findings, alerts, Evidence Containers, remediation tickets, dashboards, admin configuration, and diagnostics.</p>
+    <p>It is not a full SIEM. It focuses on recurring operational reports and notifications rather than raw high-volume log search.</p>
+  </section>
+
+  <section class="sec-panel">
+    <div class="sec-section-head">
+      <h2>First Setup Checklist</h2>
+    </div>
+    <ul class="sec-doc-list">
+      <li>Run <code>python manage.py seed_security_center_config</code>.</li>
+      <li>Review sources, parsers, alert rules, suppressions, backup expectations, notifications, ticketing, and audit log.</li>
+      <li>Open diagnostics and resolve warnings.</li>
+      <li>Ingest known-good WatchGuard, Defender, and Backup/NAS samples.</li>
+      <li>Run parsers, rules, and KPI snapshots from the pipeline page.</li>
+    </ul>
+  </section>
+</div>
+
+<section class="sec-panel sec-doc-panel">
+  <div class="sec-section-head">
+    <h2>Core Workflow</h2>
+  </div>
+  <p><code>Report/email/upload -&gt; Ingestion -&gt; Parser Engine -&gt; Metrics/Findings -&gt; Rule Engine -&gt; Alert/Suppression -&gt; Evidence Container -&gt; Ticket -&gt; Dashboard/Admin</code></p>
+</section>
+
+<div class="sec-grid sec-three-col">
+  <section class="sec-card">
+    <h3>Addons</h3>
+    <p>Core is the shared engine. An addon is source-specific parsers, seed config, rules, metrics, dashboards, tests, and docs. Current addons: WatchGuard, Microsoft Defender, and Backup/NAS.</p>
+  </section>
+  <section class="sec-card">
+    <h3>Admin Configuration</h3>
+    <p>Use <a href="{% url 'security:admin_config' %}">admin config</a> for sources, parsers, alert rules, suppressions, backups, notifications, ticketing, and audit log.</p>
+  </section>
+  <section class="sec-card">
+    <h3>Diagnostics</h3>
+    <p>Use <a href="{% url 'security:admin_diagnostics' %}">diagnostics</a> after setup, parser changes, seed changes, notification changes, and before relying on a new source.</p>
+  </section>
+</div>
+
+<div class="sec-grid sec-two-col">
+  <section class="sec-panel">
+    <div class="sec-section-head">
+      <h2>Troubleshooting</h2>
+    </div>
+    <ul class="sec-doc-list">
+      <li>No parser matched: check source patterns, parser name, parser enabled state, and diagnostics.</li>
+      <li>No alert created: check enabled rules, metric names, thresholds, cooldown, deduplication, and suppressions.</li>
+      <li>No ticket created: check auto-ticket settings and whether an existing ticket was updated.</li>
+      <li>Backup missing not detected: check expected job name, schedule, missing-after hours, and last seen status.</li>
+      <li>Permission denied: use staff access or the <code>manage_security_configuration</code> permission.</li>
+    </ul>
+  </section>
+
+  <section class="sec-panel">
+    <div class="sec-section-head">
+      <h2>Operations Checklist</h2>
+    </div>
+    <ul class="sec-doc-list">
+      <li>Daily: dashboard, critical alerts, Defender CVE tickets, failed or missing backups, parser warnings.</li>
+      <li>Weekly: suppressions, noisy rules, backup trends, unresolved tickets.</li>
+      <li>Monthly: thresholds, evidence retention, KPI trends, audit logs, management reporting.</li>
+    </ul>
+  </section>
+</div>
+
+<section class="sec-panel sec-doc-panel">
+  <div class="sec-section-head">
+    <h2>Documentation References</h2>
+  </div>
+  <div class="sec-table-wrap">
+    <table class="sec-table">
+      <thead><tr><th>Document</th><th>Purpose</th></tr></thead>
+      <tbody>
+        {% for doc in docs %}
+          <tr><td><code>{{ doc.file }}</code></td><td>{{ doc.title }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+

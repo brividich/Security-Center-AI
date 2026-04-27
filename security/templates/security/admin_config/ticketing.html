@@ -1,0 +1,21 @@
+{% extends "security/base.html" %}
+{% block title %}Ticketing / Security Center AI{% endblock %}
+{% block page_marker %}Configuration{% endblock %}
+{% block page_title %}Ticket Configuration{% endblock %}
+{% block page_icon %}*{% endblock %}
+{% block content %}
+<div class="sec-grid sec-two-col">
+  <section class="sec-panel">
+    <div class="sec-section-head"><h2>Ticketing</h2><a href="{% url 'security:admin_config' %}">Configuration home</a></div>
+    <div class="sec-table-wrap"><table class="sec-table"><thead><tr><th>Aggregation</th><th>Assignee</th><th>Group</th><th>Auto Close</th><th>Reopen</th><th>SLA</th></tr></thead><tbody>
+      {% for object in objects %}
+        <tr><td>{{ object.aggregation_strategy }}</td><td>{{ object.default_assignee }}</td><td>{{ object.default_group }}</td><td>{{ object.auto_close_enabled|yesno:"Yes,No" }}</td><td>{{ object.reopen_on_recurrence|yesno:"Yes,No" }}</td><td><pre>{{ object.sla_by_severity }}</pre></td></tr>
+      {% empty %}<tr><td colspan="6" class="sec-empty">No ticket configuration.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section class="sec-panel">
+    <div class="sec-section-head"><h2>Add Ticket Config</h2></div>
+    <form method="post" class="sec-grid">{% csrf_token %}{{ form.as_p }}<button class="sec-button-primary" type="submit">Save ticket config</button></form>
+  </section>
+</div>
+{% endblock %}

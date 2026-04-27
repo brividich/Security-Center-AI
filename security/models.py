@@ -1,6 +1,7 @@
 import hashlib
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -42,6 +43,25 @@ class SourceType(models.TextChoices):
     MANUAL = "manual", "Manual"
 
 
+class SettingValueType(models.TextChoices):
+    STRING = "string", "String"
+    INT = "int", "Integer"
+    FLOAT = "float", "Float"
+    BOOL = "bool", "Boolean"
+    JSON = "json", "JSON"
+
+
+class ConfigStatus(models.TextChoices):
+    OK = "ok", "OK"
+    WARNING = "warning", "Warning"
+    DISABLED = "disabled", "Disabled"
+    MISCONFIGURED = "misconfigured", "Misconfigured"
+
+
+def empty_setting_value():
+    return ""
+
+
 class SecuritySource(models.Model):
     name = models.CharField(max_length=160, unique=True)
     vendor = models.CharField(max_length=120, blank=True)
@@ -53,6 +73,116 @@ class SecuritySource(models.Model):
         indexes = [
             models.Index(fields=["source_type", "is_active"]),
         ]
+
+    def __str__(self):
+        return self.name
+
+
+class SecurityCenterSetting(models.Model):
+    key = models.CharField(max_length=160, unique=True)
+    value = models.JSONField(default=empty_setting_value, blank=True)
+    value_type = models.CharField(max_length=16, choices=SettingValueType.choices, default=SettingValueType.STRING)
+    category = models.CharField(max_length=80, db_index=True)
+    description = models.TextField(blank=True)
+    is_secret = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        permissions = [
+            ("manage_security_configuration", "Can manage Security Center configuration"),
+        ]
+        indexes = [
+            models.Index(fields=["category", "key"]),
+        ]
+
+    def __str__(self):
+        return self.key
+
+
+class SecuritySourceConfig(models.Model):
+    FREQUENCY_CHOICES = [
+        ("manual", "Manual"),
+        ("hourly", "Hourly"),
+        ("daily", "Daily"),
+        ("weekly", "Weekly"),
+        ("monthly", "Monthly"),
+    ]
+
+    name = models.CharField(max_length=160, unique=True)
+    source_type = models.CharField(max_length=80, db_index=True)
+    vendor = models.CharField(max_length=120, blank=True, db_index=True)
+    enabled = models.BooleanField(default=True, db_index=True)
+    description = models.TextField(blank=True)
+    expected_frequency = models.CharField(max_length=24, choices=FREQUENCY_CHOICES, default="daily")
+    expected_time_window_start = models.TimeField(null=True, blank=True)
+    expected_time_window_end = models.TimeField(null=True, blank=True)
+    mailbox_sender_patterns = models.JSONField(default=list, blank=True)
+    mailbox_subject_patterns = models.JSONField(default=list, blank=True)
+    parser_name = models.CharField(max_length=160, blank=True)
+    severity_mapping_json = models.JSONField(default=dict, blank=True)
+    metadata_json = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["source_type", "enabled"]),
+            models.Index(fields=["vendor", "enabled"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class SecurityParserConfig(models.Model):
+    parser_name = models.CharField(max_length=160, unique=True)
+    enabled = models.BooleanField(default=True, db_index=True)
+    priority = models.PositiveIntegerField(default=100, db_index=True)
+    source_type = models.CharField(max_length=80, blank=True, db_index=True)
+    input_type = models.CharField(max_length=32, blank=True)
+    description = models.TextField(blank=True)
+    config_json = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self):
+        return self.parser_name
+
+
+class SecurityAlertRuleConfig(models.Model):
+    OPERATOR_CHOICES = [
+        ("gt", ">"),
+        ("gte", ">="),
+        ("lt", "<"),
+        ("lte", "<="),
+        ("eq", "="),
+        ("neq", "!="),
+        ("contains", "Contains"),
+        ("regex", "Regex"),
+        ("baseline_deviation", "Baseline deviation"),
+    ]
+
+    code = models.CharField(max_length=160, unique=True)
+    name = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=True, db_index=True)
+    source_type = models.CharField(max_length=80, blank=True, db_index=True)
+    metric_name = models.CharField(max_length=120, blank=True, db_index=True)
+    condition_operator = models.CharField(max_length=32, choices=OPERATOR_CHOICES, default="gte")
+    threshold_value = models.CharField(max_length=120, blank=True)
+    threshold_json = models.JSONField(default=dict, blank=True)
+    severity = models.CharField(max_length=24, choices=Severity.choices, default=Severity.WARNING)
+    cooldown_minutes = models.PositiveIntegerField(default=60)
+    dedup_window_minutes = models.PositiveIntegerField(default=1440)
+    auto_create_ticket = models.BooleanField(default=False)
+    auto_create_evidence_container = models.BooleanField(default=True)
+    description = models.TextField(blank=True)
+    last_triggered_at = models.DateTimeField(null=True, blank=True)
+    trigger_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -305,30 +435,155 @@ class SecurityAlertSuppressionRule(models.Model):
     event_type = models.CharField(max_length=120, blank=True, db_index=True)
     severity = models.CharField(max_length=24, choices=Severity.choices, blank=True, db_index=True)
     match_payload = models.JSONField(default=dict, blank=True)
+    scope_type = models.CharField(max_length=32, default="alert_type", db_index=True)
+    conditions_json = models.JSONField(default=dict, blank=True)
     reason = models.TextField()
+    owner = models.CharField(max_length=120, blank=True)
     is_active = models.BooleanField(default=True, db_index=True)
+    starts_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_suppression_rules")
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    hit_count = models.PositiveIntegerField(default=0)
+    last_hit_at = models.DateTimeField(null=True, blank=True)
 
     def matches(self, event):
+        now = timezone.now()
+        if self.starts_at and self.starts_at > now:
+            return False
+        if self.expires_at and self.expires_at <= now:
+            return False
         if self.source_id and self.source_id != event.source_id:
             return False
         if self.event_type and self.event_type != event.event_type:
             return False
         if self.severity and self.severity != event.severity:
             return False
-        return all(event.payload.get(key) == value for key, value in self.match_payload.items())
+        conditions = self.conditions_json or self.match_payload or {}
+        return all(event.payload.get(key) == value for key, value in conditions.items())
+
+    @property
+    def enabled(self):
+        return self.is_active
+
+    @property
+    def is_expired(self):
+        return bool(self.expires_at and self.expires_at <= timezone.now())
 
     def __str__(self):
         return self.name
 
 
+class BackupExpectedJobConfig(models.Model):
+    job_name = models.CharField(max_length=255, db_index=True)
+    device_name = models.CharField(max_length=255, blank=True, db_index=True)
+    nas_name = models.CharField(max_length=255, blank=True, db_index=True)
+    enabled = models.BooleanField(default=True, db_index=True)
+    critical_asset = models.BooleanField(default=False)
+    expected_days_of_week = models.JSONField(default=list, blank=True)
+    expected_start_time_from = models.TimeField(null=True, blank=True)
+    expected_start_time_to = models.TimeField(null=True, blank=True)
+    max_duration_minutes = models.PositiveIntegerField(default=0)
+    min_transferred_gb = models.FloatField(null=True, blank=True)
+    max_transferred_gb = models.FloatField(null=True, blank=True)
+    missing_after_hours = models.PositiveIntegerField(default=30)
+    alert_on_missing = models.BooleanField(default=True)
+    alert_on_failure = models.BooleanField(default=True)
+    alert_on_duration_anomaly = models.BooleanField(default=True)
+    alert_on_size_anomaly = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        unique_together = [("job_name", "device_name", "nas_name")]
+        indexes = [
+            models.Index(fields=["enabled", "critical_asset"]),
+        ]
+
+    def __str__(self):
+        return f"{self.job_name} / {self.device_name or '*'}"
+
+
+class SecurityNotificationChannel(models.Model):
+    CHANNEL_CHOICES = [
+        ("email", "Email"),
+        ("teams_webhook", "Teams webhook"),
+        ("dashboard", "Dashboard"),
+    ]
+
+    name = models.CharField(max_length=160, unique=True)
+    channel_type = models.CharField(max_length=32, choices=CHANNEL_CHOICES, db_index=True)
+    enabled = models.BooleanField(default=True, db_index=True)
+    severity_min = models.CharField(max_length=24, choices=Severity.choices, default=Severity.WARNING)
+    recipients = models.TextField(blank=True)
+    webhook_url_secret_ref = models.CharField(max_length=255, blank=True)
+    notify_on_new_alert = models.BooleanField(default=True)
+    notify_on_ticket_created = models.BooleanField(default=True)
+    notify_on_sla_breach = models.BooleanField(default=True)
+    cooldown_minutes = models.PositiveIntegerField(default=60)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    @property
+    def masked_secret(self):
+        return "********" if self.webhook_url_secret_ref else ""
+
+    def __str__(self):
+        return self.name
+
+
+class SecurityTicketConfig(models.Model):
+    aggregation_strategy = models.CharField(max_length=32, default="per_product")
+    default_assignee = models.CharField(max_length=160, blank=True)
+    default_group = models.CharField(max_length=160, blank=True)
+    statuses = models.JSONField(default=list, blank=True)
+    auto_close_enabled = models.BooleanField(default=False)
+    reopen_on_recurrence = models.BooleanField(default=True)
+    sla_by_severity = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self):
+        return "Ticket configuration"
+
+
+class SecurityConfigurationAuditLog(models.Model):
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    action = models.CharField(max_length=80, db_index=True)
+    model_name = models.CharField(max_length=120, db_index=True)
+    object_id = models.CharField(max_length=80, blank=True)
+    object_repr = models.CharField(max_length=255, blank=True)
+    field_name = models.CharField(max_length=120, blank=True)
+    old_value = models.TextField(blank=True)
+    new_value = models.TextField(blank=True)
+    request_ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["model_name", "created_at"]),
+        ]
+
+
 class SecurityRemediationTicket(models.Model):
     source = models.ForeignKey(SecuritySource, on_delete=models.CASCADE)
     alert = models.ForeignKey(SecurityAlert, on_delete=models.SET_NULL, null=True, blank=True, related_name="tickets")
+    linked_alerts = models.ManyToManyField(SecurityAlert, blank=True, related_name="linked_remediation_tickets")
     cve = models.CharField(max_length=32, blank=True, db_index=True)
+    cve_ids = models.JSONField(default=list, blank=True)
     affected_product = models.CharField(max_length=255, blank=True, db_index=True)
+    organization = models.CharField(max_length=255, blank=True, db_index=True)
+    source_system = models.CharField(max_length=80, blank=True, db_index=True)
     title = models.CharField(max_length=255)
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.OPEN, db_index=True)
+    severity = models.CharField(max_length=24, choices=Severity.choices, default=Severity.WARNING, db_index=True)
+    max_cvss = models.FloatField(default=0)
+    max_exposed_devices = models.PositiveIntegerField(default=0)
+    first_seen_at = models.DateTimeField(default=timezone.now, db_index=True)
+    last_seen_at = models.DateTimeField(default=timezone.now, db_index=True)
+    occurrence_count = models.PositiveIntegerField(default=1)
     dedup_hash = models.CharField(max_length=64, db_index=True)
     evidence = models.ManyToManyField(SecurityEvidenceContainer, blank=True, related_name="tickets")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

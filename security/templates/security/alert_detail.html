@@ -42,7 +42,8 @@
     {% if ticket %}
       <p><strong>{{ ticket.title }}</strong></p>
       <p>Status: <span class="sec-badge {{ ticket.status }}">{{ ticket.get_status_display }}</span></p>
-      <p>CVE: {{ ticket.cve|default:"-" }} · Product: {{ ticket.affected_product|default:"-" }}</p>
+      <p>CVEs: {% if ticket.cve_ids %}{{ ticket.cve_ids|join:", " }}{% else %}{{ ticket.cve|default:"-" }}{% endif %} · Product: {{ ticket.affected_product|default:"-" }}</p>
+      <p>Max CVSS {{ ticket.max_cvss }} · Max exposed devices {{ ticket.max_exposed_devices }} · Occurrences {{ ticket.occurrence_count }}</p>
     {% else %}
       <p class="sec-empty">No remediation ticket linked.</p>
     {% endif %}

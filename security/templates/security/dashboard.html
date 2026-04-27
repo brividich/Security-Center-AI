@@ -89,6 +89,25 @@
       </ul>
     </div>
     <div class="sec-panel">
+      <div class="sec-section-head"><h2>Defender Vulnerabilities</h2><span class="sec-muted">Latest parsed</span></div>
+      <ul class="sec-mini-list">
+        {% for finding in latest_defender_findings %}
+          <li>
+            <span>
+              <strong class="{{ finding.severity }}">{{ finding.cve }}</strong><br>
+              <small class="sec-muted">{{ finding.affected_product }} / {{ finding.exposed_devices }} exposed</small>
+              {% if finding.linked_alert %}<br><a href="{% url 'security:alert_detail' finding.linked_alert.pk %}">Alert</a>{% endif %}
+              {% if finding.linked_ticket %}<span class="sec-muted"> Ticket {{ finding.linked_ticket.dedup_hash|slice:":8" }}</span>{% endif %}
+              {% if finding.linked_evidence %}<span class="sec-muted"> Evidence {{ finding.linked_evidence.id }}</span>{% endif %}
+            </span>
+            <span>{{ finding.cvss }}</span>
+          </li>
+        {% empty %}
+          <li><span class="sec-muted">No Defender vulnerability findings parsed.</span></li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="sec-panel">
       <div class="sec-section-head"><h2>Pipeline</h2><a href="{% url 'security:pipeline' %}">Control Room</a></div>
       {% include "security/partials/pipeline_result.html" with last_pipeline_run=last_pipeline_run %}
     </div>
