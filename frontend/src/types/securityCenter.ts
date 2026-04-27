@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export type PageKey = "overview" | "inbox" | "assets" | "reports" | "evidence" | "rules";
+export type PageKey = "overview" | "addons" | "inbox" | "assets" | "reports" | "evidence" | "rules";
 export type Tone = "neutral" | "good" | "warning" | "danger" | "info" | "dark";
 export type Severity = "critical" | "high" | "medium" | "warning" | "low";
 export type IconName =

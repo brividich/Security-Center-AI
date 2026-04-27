@@ -1,7 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.db.models import Count
-from django.http import HttpResponseForbidden
+from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -58,6 +58,7 @@ from .services.configuration import (
     snapshot_instance,
     source_matches_sample,
 )
+from .services.addon_registry import get_addon_detail, get_addon_registry
 from .services.diagnostics import build_diagnostics_context
 
 
@@ -375,6 +376,21 @@ def admin_docs(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
     return render(request, "security/admin_docs.html", {"docs": SECURITY_CENTER_DOCS})
+
+
+def admin_addons(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    return render(request, "security/admin_addons.html", {"addons": get_addon_registry()})
+
+
+def admin_addon_detail(request, code):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    addon = get_addon_detail(code)
+    if addon is None:
+        raise Http404("Unknown addon.")
+    return render(request, "security/admin_addon_detail.html", {"addon": addon})
 
 
 def _config_model_page(request, model, form_class, template, redirect_name, extra_context=None):

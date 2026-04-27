@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AppShell } from "./components/layout/AppShell";
 import type { PageKey } from "./types/securityCenter";
+import { AddonsPage } from "./pages/AddonsPage";
 import { Asset360Page } from "./pages/Asset360Page";
 import { EventInboxPage } from "./pages/EventInboxPage";
 import { FallbackPage } from "./pages/FallbackPage";
@@ -12,6 +13,8 @@ export default function App() {
 
   const content = useMemo(() => {
     switch (activePage) {
+      case "addons":
+        return <AddonsPage />;
       case "inbox":
         return <EventInboxPage />;
       case "assets":
