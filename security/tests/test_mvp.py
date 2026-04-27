@@ -21,6 +21,7 @@ from security.models import (
 )
 from security.parsers.microsoft_defender_vulnerability_notification_email_parser import (
     MicrosoftDefenderVulnerabilityNotificationEmailParser,
+    microsoft_defender_vulnerability_notification_email_parser,
 )
 from security.parsers.synology_active_backup_email_parser import SynologyActiveBackupEmailParser
 from security.parsers.synology_active_backup_email_parser import parse_synology_active_backup_email
@@ -54,6 +55,76 @@ class ParserTests(TestCase):
         parsed = MicrosoftDefenderVulnerabilityNotificationEmailParser().parse(msg)
         self.assertEqual(parsed.records[0].payload["cve"], "CVE-2025-9999")
         self.assertEqual(parsed.records[0].payload["severity"], "critical")
+
+    def test_defender_one_critical_cve_creates_alert_candidate(self):
+        parsed = microsoft_defender_vulnerability_notification_email_parser(
+            "New vulnerabilities notification from Microsoft Defender for Endpoint",
+            "Organization: Contoso\nCVE-2025-9999\nSeverity: Critical\nCVSS score: 9.8\nExposed devices: 58\nAffected product: Microsoft Edge",
+            sender="defender-noreply@microsoft.com",
+        )
+
+        self.assertEqual(parsed["findings"][0]["cvss"], 9.8)
+        self.assertEqual(parsed["findings"][0]["exposed_devices"], 58)
+        self.assertEqual(len(parsed["alert_candidates"]), 1)
+        self.assertEqual(parsed["alert_candidates"][0]["severity"], Severity.CRITICAL)
+
+    def test_defender_cvss_comma_decimal_parses(self):
+        parsed = microsoft_defender_vulnerability_notification_email_parser(
+            "Defender",
+            "CVE-2025-1001\nSeverity: High\nCVSS score: 9,8\nExposed devices: 4\nAffected product: Windows Server",
+        )
+
+        self.assertEqual(parsed["findings"][0]["cvss"], 9.8)
+
+    def test_defender_multiple_cves_in_one_email(self):
+        parsed = microsoft_defender_vulnerability_notification_email_parser(
+            "Defender",
+            "CVE-2025-1001\nSeverity: Critical\nCVSS: 9.8\nExposed devices: 4\nAffected product: Edge\n"
+            "CVE-2025-1002\nSeverity: High\nCVSS: 8.1\nExposed devices: 3\nAffected product: Defender",
+        )
+
+        self.assertEqual([finding["cve"] for finding in parsed["findings"]], ["CVE-2025-1001", "CVE-2025-1002"])
+        self.assertEqual(parsed["metrics"]["defender_vulnerability_total_count"], 2)
+
+    def test_defender_exposed_devices_zero_does_not_create_alert_candidate(self):
+        parsed = microsoft_defender_vulnerability_notification_email_parser(
+            "Defender",
+            "CVE-2025-1003\nSeverity: Critical\nCVSS: 9.8\nExposed devices: 0\nAffected product: Edge",
+        )
+
+        self.assertEqual(parsed["alert_candidates"], [])
+
+    def test_defender_high_cvss_below_nine_does_not_create_critical_alert(self):
+        parsed = microsoft_defender_vulnerability_notification_email_parser(
+            "Defender",
+            "CVE-2025-1004\nSeverity: High\nCVSS: 8.8\nExposed devices: 4\nAffected product: Edge",
+        )
+
+        self.assertEqual(parsed["alert_candidates"], [])
+
+    def test_defender_critical_without_cvss_creates_alert_candidate_when_exposed(self):
+        parsed = microsoft_defender_vulnerability_notification_email_parser(
+            "Defender",
+            "CVE-2025-1005\nSeverity: Critical\nExposed devices: 4\nAffected product: Edge",
+        )
+
+        self.assertIsNone(parsed["findings"][0]["cvss"])
+        self.assertEqual(len(parsed["alert_candidates"]), 1)
+
+    def test_defender_malformed_email_returns_warning_no_crash(self):
+        parsed = microsoft_defender_vulnerability_notification_email_parser("Defender", "<p>not a useful vulnerability table</p>")
+
+        self.assertTrue(parsed["parse_warnings"])
+        self.assertEqual(parsed["findings"], [])
+
+    def test_defender_parser_is_pure_without_db_access(self):
+        with self.assertNumQueries(0):
+            parsed = microsoft_defender_vulnerability_notification_email_parser(
+                "Defender",
+                "CVE-2025-1006\nSeverity: Critical\nCVSS: 9.1\nExposed devices: 1\nAffected product: Edge",
+            )
+
+        self.assertEqual(parsed["findings"][0]["cve"], "CVE-2025-1006")
 
     def test_parser_synology_backup_email(self):
         msg = ingest_mailbox_message(
@@ -189,6 +260,58 @@ class RuleEngineTests(TestCase):
         self.assertEqual(BackupJobRecord.objects.filter(status="failed").count(), 1)
         self.assertEqual(SecurityAlert.objects.count(), 1)
         self.assertEqual(SecurityEvidenceContainer.objects.count(), 1)
+
+    def test_defender_duplicate_same_cve_product_updates_existing_ticket(self):
+        body = (
+            "Organization: Contoso\n"
+            "CVE-2025-2001\nSeverity: Critical\nCVSS: 9.8\nExposed devices: 2\nAffected product: Microsoft Edge"
+        )
+        ingest_mailbox_message(self.source, "New vulnerabilities notification from Microsoft Defender for Endpoint", body, sender="defender-noreply@microsoft.com", external_id="one")
+        ingest_mailbox_message(self.source, "New vulnerabilities notification from Microsoft Defender for Endpoint", body.replace("Exposed devices: 2", "Exposed devices: 5"), sender="defender-noreply@microsoft.com", external_id="two")
+
+        run_pending_parsers()
+        evaluate_security_rules()
+
+        self.assertEqual(SecurityRemediationTicket.objects.count(), 1)
+        ticket = SecurityRemediationTicket.objects.get()
+        self.assertEqual(ticket.cve_ids, ["CVE-2025-2001"])
+        self.assertEqual(ticket.occurrence_count, 2)
+        self.assertEqual(ticket.max_exposed_devices, 5)
+        self.assertEqual(ticket.evidence.count(), 2)
+
+    def test_defender_repeated_email_import_increments_occurrence_without_duplicate_ticket(self):
+        body = (
+            "Organization: Contoso\n"
+            "CVE-2025-2002\nSeverity: Critical\nCVSS: 9.5\nExposed devices: 7\nAffected product: Windows Server"
+        )
+        ingest_mailbox_message(self.source, "New vulnerabilities notification from Microsoft Defender for Endpoint", body, sender="defender-noreply@microsoft.com", external_id="one")
+        ingest_mailbox_message(self.source, "New vulnerabilities notification from Microsoft Defender for Endpoint", body, sender="defender-noreply@microsoft.com", external_id="two")
+
+        run_pending_parsers()
+        evaluate_security_rules()
+
+        ticket = SecurityRemediationTicket.objects.get()
+        self.assertEqual(SecurityRemediationTicket.objects.count(), 1)
+        self.assertEqual(ticket.occurrence_count, 2)
+        self.assertEqual(ticket.max_exposed_devices, 7)
+
+    def test_defender_multiple_critical_cves_same_product_aggregate_ticket(self):
+        body = (
+            "Organization: Contoso\n"
+            "CVE-2025-2003\nSeverity: Critical\nCVSS: 9.8\nExposed devices: 4\nAffected product: Microsoft Edge\n"
+            "CVE-2025-2004\nSeverity: Critical\nCVSS: 9.1\nExposed devices: 2\nAffected product: Microsoft Edge"
+        )
+        ingest_mailbox_message(self.source, "New vulnerabilities notification from Microsoft Defender for Endpoint", body, sender="defender-noreply@microsoft.com")
+
+        run_pending_parsers()
+        evaluate_security_rules()
+
+        self.assertEqual(SecurityAlert.objects.filter(severity=Severity.CRITICAL).count(), 2)
+        self.assertEqual(SecurityRemediationTicket.objects.count(), 1)
+        ticket = SecurityRemediationTicket.objects.get()
+        self.assertEqual(ticket.cve_ids, ["CVE-2025-2003", "CVE-2025-2004"])
+        self.assertEqual(ticket.max_cvss, 9.8)
+        self.assertEqual(ticket.max_exposed_devices, 4)
 
     def test_pipeline_synology_backup_deduplicates_records_and_events(self):
         ingest_mailbox_message(self.source, SYNOLOGY_SUBJECT_COMPLETED, SYNOLOGY_BODY_COMPLETED, external_id="one")

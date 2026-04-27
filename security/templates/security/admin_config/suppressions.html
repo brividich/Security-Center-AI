@@ -1,0 +1,21 @@
+{% extends "security/base.html" %}
+{% block title %}Suppressions / Security Center AI{% endblock %}
+{% block page_marker %}Configuration{% endblock %}
+{% block page_title %}Suppression / Muting Rules{% endblock %}
+{% block page_icon %}*{% endblock %}
+{% block content %}
+<div class="sec-grid sec-two-col">
+  <section class="sec-panel">
+    <div class="sec-section-head"><h2>Suppression Rules</h2><a href="{% url 'security:admin_config' %}">Configuration home</a></div>
+    <div class="sec-table-wrap"><table class="sec-table"><thead><tr><th>Name</th><th>Scope</th><th>Status</th><th>Owner</th><th>Reason</th><th>Hits</th><th>Expires</th></tr></thead><tbody>
+      {% for object in objects %}
+        <tr><td>{{ object.name }}</td><td>{{ object.scope_type }} {{ object.event_type }}</td><td><span class="sec-badge {% if object.is_expired %}warning{% elif object.is_active %}ok{% else %}disabled{% endif %}">{% if object.is_expired %}Expired{% elif object.is_active %}Active{% else %}Disabled{% endif %}</span></td><td>{{ object.owner }}</td><td>{{ object.reason }}</td><td>{{ object.hit_count }}</td><td>{{ object.expires_at|default:"-" }}</td></tr>
+      {% empty %}<tr><td colspan="7" class="sec-empty">No suppression rules.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section class="sec-panel">
+    <div class="sec-section-head"><h2>Create Suppression</h2></div>
+    <form method="post" class="sec-grid">{% csrf_token %}{{ form.as_p }}<button class="sec-button-primary" type="submit">Save suppression</button></form>
+  </section>
+</div>
+{% endblock %}

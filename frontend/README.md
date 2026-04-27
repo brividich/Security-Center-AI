@@ -1,11 +1,12 @@
-# Frontend placeholder
+# Security Center AI Frontend
 
-The MVP uses Django templates and server-side views.
+Vite + React + TypeScript frontend for the Security Center AI console.
 
-This folder is reserved for a future React/TypeScript frontend. Suggested future shape:
+```bash
+npm install
+npm run dev
+npm run build
+```
 
-- `frontend/package.json`
-- `frontend/src/api/`
-- `frontend/src/components/`
-- `frontend/src/pages/`
-- `frontend/src/types/`
+Mock data currently lives in `src/data/mockData.ts`. Replace the service methods in
+`src/services/api.ts` when the Django REST API endpoints are ready.

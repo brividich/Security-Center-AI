@@ -93,7 +93,7 @@ class SecurityKpiSnapshotAdmin(admin.ModelAdmin):
 
 @admin.register(models.SecurityAlertSuppressionRule)
 class SecurityAlertSuppressionRuleAdmin(admin.ModelAdmin):
-    list_display = ("name", "source", "event_type", "severity", "is_active")
+    list_display = ("name", "source", "event_type", "severity", "is_active", "owner", "expires_at", "hit_count")
     list_filter = ("is_active", "event_type", "severity", "source")
 
 
@@ -108,3 +108,19 @@ class SecurityRemediationTicketAdmin(admin.ModelAdmin):
     list_display = ("title", "source", "cve", "affected_product", "status", "updated_at")
     list_filter = ("status", "source")
     search_fields = ("title", "cve", "affected_product", "dedup_hash")
+
+
+for config_model in [
+    models.SecurityCenterSetting,
+    models.SecuritySourceConfig,
+    models.SecurityParserConfig,
+    models.SecurityAlertRuleConfig,
+    models.BackupExpectedJobConfig,
+    models.SecurityNotificationChannel,
+    models.SecurityTicketConfig,
+    models.SecurityConfigurationAuditLog,
+]:
+    try:
+        admin.site.register(config_model)
+    except admin.sites.AlreadyRegistered:
+        pass

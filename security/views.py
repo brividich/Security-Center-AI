@@ -1,18 +1,39 @@
 from django.contrib import messages
+from django.contrib.auth.views import redirect_to_login
 from django.db.models import Count
+from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from .forms import (
+    BackupExpectedJobConfigForm,
+    SecurityAlertRuleConfigForm,
+    SecurityAlertSuppressionRuleForm,
+    SecurityCenterSettingForm,
+    SecurityNotificationChannelForm,
+    SecurityParserConfigForm,
+    SecuritySourceConfigForm,
+    SecurityTicketConfigForm,
+)
 from .models import (
+    BackupExpectedJobConfig,
     SecurityAlert,
+    SecurityAlertRuleConfig,
+    SecurityAlertSuppressionRule,
+    SecurityCenterSetting,
+    SecurityConfigurationAuditLog,
     SecurityEvidenceContainer,
     SecurityEventRecord,
     SecurityKpiSnapshot,
+    SecurityNotificationChannel,
+    SecurityParserConfig,
     SecurityRemediationTicket,
     SecurityReport,
     SecuritySource,
+    SecuritySourceConfig,
+    SecurityTicketConfig,
     SecurityVulnerabilityFinding,
     Severity,
     Status,
@@ -27,7 +48,17 @@ from .services.alert_lifecycle import (
 )
 from .services.kpi_service import build_daily_kpi_snapshots
 from .services.parser_engine import run_pending_parsers
-from .services.rule_engine import evaluate_security_rules
+from .services.rule_engine import evaluate_security_rules, test_alert_rule
+from .services.backup_monitoring import last_seen_backup_status, missing_backup_candidates
+from .services.configuration import (
+    audit_config_change,
+    audit_model_form_changes,
+    can_manage_security_config,
+    masked_setting_value,
+    snapshot_instance,
+    source_matches_sample,
+)
+from .services.diagnostics import build_diagnostics_context
 
 
 def dashboard(request):
@@ -39,6 +70,11 @@ def dashboard(request):
         "reports_today_count": SecurityReport.objects.filter(created_at__date=today).count(),
         "evidence_today_count": SecurityEvidenceContainer.objects.filter(created_at__date=today).count(),
         "latest_critical_cves": SecurityVulnerabilityFinding.objects.filter(severity=Severity.CRITICAL).order_by("-last_seen_at")[:8],
+        "latest_defender_findings": _decorate_defender_findings(
+            SecurityVulnerabilityFinding.objects.select_related("source", "report")
+            .filter(payload__source="microsoft_defender")
+            .order_by("-last_seen_at")[:8]
+        ),
         "latest_alerts": _decorate_alerts(SecurityAlert.objects.select_related("source", "event").order_by("-updated_at")[:10]),
         "last_pipeline_run": request.session.get("last_pipeline_run"),
     }
@@ -148,6 +184,12 @@ def pipeline_page(request):
     return render(request, "security/pipeline.html", {"last_pipeline_run": request.session.get("last_pipeline_run")})
 
 
+def help_page(request):
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path(), login_url="/admin/login/")
+    return render(request, "security/help.html", {"docs": SECURITY_CENTER_DOCS})
+
+
 @require_POST
 def pipeline_run(request, action):
     started_at = timezone.now()
@@ -186,6 +228,227 @@ def pipeline_run(request, action):
     return redirect(reverse("security:pipeline"))
 
 
+def admin_config_dashboard(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    cards = [
+        _config_card("General", "admin_config_general", SecurityCenterSetting.objects.count(), SecurityCenterSetting.objects.filter(is_secret=True).count(), SecurityCenterSetting.objects.order_by("-updated_at").first()),
+        _config_card("Sources", "admin_config_sources", SecuritySourceConfig.objects.filter(enabled=True).count(), SecuritySourceConfig.objects.filter(enabled=False).count(), SecuritySourceConfig.objects.order_by("-updated_at").first()),
+        _config_card("Parsers", "admin_config_parsers", SecurityParserConfig.objects.filter(enabled=True).count(), SecurityParserConfig.objects.filter(enabled=False).count(), SecurityParserConfig.objects.order_by("-updated_at").first()),
+        _config_card("Alert Rules", "admin_config_alert_rules", SecurityAlertRuleConfig.objects.filter(enabled=True).count(), SecurityAlertRuleConfig.objects.filter(enabled=False).count(), SecurityAlertRuleConfig.objects.order_by("-updated_at").first()),
+        _config_card("Suppression Rules", "admin_config_suppressions", SecurityAlertSuppressionRule.objects.filter(is_active=True).count(), SecurityAlertSuppressionRule.objects.filter(is_active=False).count(), SecurityAlertSuppressionRule.objects.order_by("-updated_at").first()),
+        _config_card("Backup Monitoring", "admin_config_backups", BackupExpectedJobConfig.objects.filter(enabled=True).count(), len(missing_backup_candidates()), BackupExpectedJobConfig.objects.order_by("-updated_at").first()),
+        _config_card("Notifications", "admin_config_notifications", SecurityNotificationChannel.objects.filter(enabled=True).count(), SecurityNotificationChannel.objects.filter(enabled=False).count(), SecurityNotificationChannel.objects.order_by("-updated_at").first()),
+        _config_card("Ticketing", "admin_config_ticketing", SecurityTicketConfig.objects.count(), 0, SecurityTicketConfig.objects.order_by("-updated_at").first()),
+        _config_card("Audit Log", "admin_config_audit", SecurityConfigurationAuditLog.objects.count(), 0, SecurityConfigurationAuditLog.objects.order_by("-created_at").first()),
+    ]
+    return render(request, "security/admin_config/dashboard.html", {"cards": cards, "recent_changes": SecurityConfigurationAuditLog.objects.select_related("actor").order_by("-created_at")[:8]})
+
+
+def admin_config_general(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    settings = SecurityCenterSetting.objects.order_by("category", "key")
+    if request.method == "POST":
+        setting = get_object_or_404(SecurityCenterSetting, pk=request.POST.get("setting_id"))
+        old = snapshot_instance(setting)
+        form = SecurityCenterSettingForm(request.POST, instance=setting)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            if setting.is_secret and form.cleaned_data.get("value") in ("", None):
+                obj.value = setting.value
+            obj.updated_by = request.user
+            obj.save()
+            audit_model_form_changes(request.user, obj, old, snapshot_instance(obj), request=request, secret_fields={"value"} if obj.is_secret else set())
+            messages.success(request, "Setting updated.")
+            return redirect("security:admin_config_general")
+    rows = []
+    for setting in settings:
+        form = SecurityCenterSettingForm(instance=setting)
+        if setting.is_secret:
+            form.initial["value"] = ""
+        rows.append({"setting": setting, "display_value": masked_setting_value(setting), "form": form})
+    return render(request, "security/admin_config/general.html", {"rows": rows})
+
+
+def admin_config_sources(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    test_result = None
+    form = SecuritySourceConfigForm()
+    if request.method == "POST":
+        if request.POST.get("action") == "test-match":
+            config = get_object_or_404(SecuritySourceConfig, pk=request.POST.get("source_id"))
+            test_result = {
+                "source": config,
+                "matched": source_matches_sample(config, request.POST.get("sender"), request.POST.get("subject"), request.POST.get("body")),
+            }
+        else:
+            instance = get_object_or_404(SecuritySourceConfig, pk=request.POST.get("object_id")) if request.POST.get("object_id") else None
+            old = snapshot_instance(instance) if instance else {}
+            form = SecuritySourceConfigForm(request.POST, instance=instance)
+            if form.is_valid():
+                obj = form.save(commit=False)
+                obj.updated_by = request.user
+                obj.save()
+                audit_model_form_changes(request.user, obj, old, snapshot_instance(obj), request=request)
+                messages.success(request, "Source configuration saved.")
+                return redirect("security:admin_config_sources")
+    return render(request, "security/admin_config/sources.html", {"objects": SecuritySourceConfig.objects.order_by("vendor", "name"), "form": form, "test_result": test_result})
+
+
+def admin_config_parsers(request):
+    return _config_model_page(request, SecurityParserConfig, SecurityParserConfigForm, "security/admin_config/parsers.html", "admin_config_parsers", extra_context=_parser_stats())
+
+
+def admin_config_alert_rules(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    test_result = None
+    if request.method == "POST" and request.POST.get("action") == "test-rule":
+        rule = get_object_or_404(SecurityAlertRuleConfig, pk=request.POST.get("rule_id"))
+        import json
+
+        try:
+            metrics = json.loads(request.POST.get("metrics_json") or "{}")
+            test_result = {"rule": rule, "matched": test_alert_rule(rule, metrics), "metrics": metrics}
+        except json.JSONDecodeError:
+            test_result = {"error": "Invalid JSON metrics sample."}
+    elif request.method == "POST":
+        return _save_config_form(request, SecurityAlertRuleConfig, SecurityAlertRuleConfigForm, "admin_config_alert_rules")
+    return render(request, "security/admin_config/alert_rules.html", {"objects": SecurityAlertRuleConfig.objects.order_by("source_type", "code"), "form": SecurityAlertRuleConfigForm(), "test_result": test_result})
+
+
+def admin_config_suppressions(request):
+    return _config_model_page(request, SecurityAlertSuppressionRule, SecurityAlertSuppressionRuleForm, "security/admin_config/suppressions.html", "admin_config_suppressions")
+
+
+def admin_config_backups(request):
+    extra = {"last_seen": {obj.pk: last_seen_backup_status(obj) for obj in BackupExpectedJobConfig.objects.all()}}
+    return _config_model_page(request, BackupExpectedJobConfig, BackupExpectedJobConfigForm, "security/admin_config/backups.html", "admin_config_backups", extra_context=extra)
+
+
+def admin_config_notifications(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    if request.method == "POST":
+        instance = get_object_or_404(SecurityNotificationChannel, pk=request.POST.get("object_id")) if request.POST.get("object_id") else None
+        old = snapshot_instance(instance) if instance else {}
+        form = SecurityNotificationChannelForm(request.POST, instance=instance)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            replacement = form.cleaned_data.get("replace_webhook_secret")
+            if replacement:
+                obj.webhook_url_secret_ref = replacement
+            obj.updated_by = request.user
+            obj.save()
+            audit_model_form_changes(request.user, obj, old, snapshot_instance(obj), request=request, secret_fields={"webhook_url_secret_ref"})
+            messages.success(request, "Notification channel saved.")
+            return redirect("security:admin_config_notifications")
+    return render(request, "security/admin_config/notifications.html", {"objects": SecurityNotificationChannel.objects.order_by("channel_type", "name"), "form": SecurityNotificationChannelForm()})
+
+
+def admin_config_ticketing(request):
+    return _config_model_page(request, SecurityTicketConfig, SecurityTicketConfigForm, "security/admin_config/ticketing.html", "admin_config_ticketing")
+
+
+def admin_config_audit(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    return render(request, "security/admin_config/audit.html", {"objects": SecurityConfigurationAuditLog.objects.select_related("actor").order_by("-created_at")[:200]})
+
+
+def admin_diagnostics(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    match_input = None
+    if request.method == "POST":
+        match_input = {
+            "sender": request.POST.get("sender", "")[:320],
+            "subject": request.POST.get("subject", "")[:500],
+            "body": request.POST.get("body", "")[:5000],
+        }
+    return render(request, "security/admin_diagnostics.html", build_diagnostics_context(match_input))
+
+
+def admin_docs(request):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    return render(request, "security/admin_docs.html", {"docs": SECURITY_CENTER_DOCS})
+
+
+def _config_model_page(request, model, form_class, template, redirect_name, extra_context=None):
+    if not can_manage_security_config(request.user):
+        return _security_config_denied(request)
+    if request.method == "POST":
+        return _save_config_form(request, model, form_class, redirect_name)
+    context = {"objects": model.objects.all(), "form": form_class()}
+    context.update(extra_context or {})
+    return render(request, template, context)
+
+
+def _save_config_form(request, model, form_class, redirect_name):
+    instance = get_object_or_404(model, pk=request.POST.get("object_id")) if request.POST.get("object_id") else None
+    old = snapshot_instance(instance) if instance else {}
+    form = form_class(request.POST, instance=instance)
+    if form.is_valid():
+        obj = form.save(commit=False)
+        if hasattr(obj, "updated_by"):
+            obj.updated_by = request.user
+        if hasattr(obj, "created_by") and not obj.pk:
+            obj.created_by = request.user
+        obj.save()
+        audit_model_form_changes(request.user, obj, old, snapshot_instance(obj), request=request)
+        if not old:
+            audit_config_change(request.user, "create", obj, request=request)
+        messages.success(request, "Configuration saved.")
+    else:
+        messages.error(request, "Configuration was not saved. Check required fields and JSON values.")
+    return redirect(f"security:{redirect_name}")
+
+
+def _security_config_denied(request):
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path(), login_url="/admin/login/")
+    return HttpResponseForbidden("Security configuration access requires staff or explicit permission.")
+
+
+def _config_card(title, url_name, enabled_count, warning_count, latest):
+    status = "ok"
+    if warning_count:
+        status = "warning"
+    if enabled_count == 0 and title not in {"Audit Log"}:
+        status = "disabled"
+    return {
+        "title": title,
+        "url_name": url_name,
+        "url": reverse(f"security:{url_name}"),
+        "enabled_count": enabled_count,
+        "warning_count": warning_count,
+        "last_updated": getattr(latest, "updated_at", None) or getattr(latest, "created_at", None),
+        "status": status,
+    }
+
+
+def _parser_stats():
+    stats = {}
+    for report in SecurityReport.objects.values("parser_name").annotate(total=Count("id")):
+        stats[report["parser_name"]] = {"reports_parsed": report["total"]}
+    for parser in SecurityParserConfig.objects.all():
+        data = stats.setdefault(parser.parser_name, {})
+        successes = SecurityReport.objects.filter(parser_name=parser.parser_name, parse_status="parsed").order_by("-created_at")
+        failures = SecurityReport.objects.filter(parser_name=parser.parser_name, parse_status="failed").order_by("-created_at")
+        data.update(
+            {
+                "last_successful_parse": successes.first(),
+                "last_failed_parse": failures.first(),
+                "warning_count": SecurityReport.objects.filter(parser_name=parser.parser_name, parsed_payload__parse_warnings__isnull=False).count(),
+                "error_count": failures.count(),
+            }
+        )
+    return {"parser_stats": stats}
+
+
 def _latest_pipeline_reports():
     reports = []
     for report in SecurityReport.objects.prefetch_related("metrics", "events").order_by("-created_at")[:5]:
@@ -213,6 +476,31 @@ def _decorate_alerts(alerts):
         alert.linked_ticket = alert.tickets.order_by("-updated_at").first()
         alert.last_seen_at = alert.event.occurred_at if alert.event_id else alert.updated_at
         decorated.append(alert)
+    return decorated
+
+
+def _decorate_defender_findings(findings):
+    decorated = []
+    active_ticket_statuses = [Status.NEW, Status.OPEN, Status.IN_PROGRESS]
+    for finding in findings:
+        finding.linked_alert = SecurityAlert.objects.filter(
+            source=finding.source,
+            dedup_hash=finding.dedup_hash,
+        ).order_by("-updated_at").first()
+        ticket = (
+            SecurityRemediationTicket.objects.filter(
+                source=finding.source,
+                affected_product=finding.affected_product,
+                status__in=active_ticket_statuses,
+            )
+            .order_by("-updated_at")
+            .first()
+        )
+        if ticket and finding.cve not in (ticket.cve_ids or [ticket.cve]):
+            ticket = None
+        finding.linked_ticket = ticket
+        finding.linked_evidence = ticket.evidence.order_by("-created_at").first() if ticket else None
+        decorated.append(finding)
     return decorated
 
 
@@ -250,3 +538,19 @@ def _parse_snooze_until(value):
     if timezone.is_naive(parsed):
         return timezone.make_aware(parsed, timezone.get_current_timezone())
     return parsed
+
+
+SECURITY_CENTER_DOCS = [
+    {"file": "00_START_HERE.md", "title": "Start Here", "summary": "MVP scope, first setup checklist, and first 30 minutes."},
+    {"file": "01_ARCHITECTURE.md", "title": "Architecture", "summary": "Core engine, parser engine, rule engine, evidence, KPIs, admin config, diagnostics, and addons."},
+    {"file": "02_ADMIN_GUIDE.md", "title": "Admin Guide", "summary": "Sources, parsers, alert rules, suppressions, backups, notifications, ticketing, and audit log."},
+    {"file": "03_ADDONS.md", "title": "Addons", "summary": "Core versus addon model and target addon architecture."},
+    {"file": "04_WATCHGUARD_ADDON.md", "title": "WatchGuard Addon", "summary": "Supported WatchGuard inputs, metrics, rules, noise reduction, and limitations."},
+    {"file": "05_DEFENDER_ADDON.md", "title": "Microsoft Defender Addon", "summary": "Vulnerability emails, CVE evidence, ticket deduplication, and recurrence."},
+    {"file": "06_BACKUP_ADDON.md", "title": "Backup/NAS Addon", "summary": "Synology Active Backup source, expected jobs, missing backup logic, and Backup Health."},
+    {"file": "07_ALERT_LIFECYCLE.md", "title": "Alert Lifecycle", "summary": "Alert states and differences between acknowledge, snooze, mute, suppress, resolve, false positive, and close."},
+    {"file": "08_CONFIGURATION_GUIDE.md", "title": "Configuration Guide", "summary": "Seed config and DB-backed settings for sources, parsers, rules, suppressions, backups, notifications, and ticketing."},
+    {"file": "09_TROUBLESHOOTING.md", "title": "Troubleshooting", "summary": "Common parser, source, alert, ticket, backup, notification, seed, and permission issues."},
+    {"file": "10_DEVELOPER_GUIDE.md", "title": "Developer Guide", "summary": "Parser purity, output structure, warnings, tests, seed config, alert rules, and dashboard visibility."},
+    {"file": "11_OPERATIONS_RUNBOOK.md", "title": "Operations Runbook", "summary": "Daily, weekly, and monthly operating checklist."},
+]

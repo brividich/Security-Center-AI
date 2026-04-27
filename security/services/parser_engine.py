@@ -10,6 +10,7 @@ from security.models import (
     SecurityReportMetric,
     SecuritySourceFile,
     SecurityVulnerabilityFinding,
+    SecurityParserConfig,
     Severity,
 )
 from security.parsers.load import *  # noqa: F403,F401
@@ -20,7 +21,7 @@ from security.services.dedup import make_hash
 def run_pending_parsers():
     parsed_count = 0
     for item in _pending_items():
-        parser = parser_registry.match(item)
+        parser = _match_enabled_parser(item)
         if not parser:
             item.parse_status = ParseStatus.SKIPPED
             item.save(update_fields=["parse_status"])
@@ -66,16 +67,40 @@ def _pending_items():
     yield from SecuritySourceFile.objects.filter(parse_status=ParseStatus.PENDING).order_by("uploaded_at")
 
 
+def _match_enabled_parser(item):
+    configs = {
+        config.parser_name: config
+        for config in SecurityParserConfig.objects.all()
+    }
+    parsers = parser_registry.all()
+    parsers.sort(key=lambda parser: configs.get(parser.name).priority if parser.name in configs else 100)
+    for parser in parsers:
+        config = configs.get(parser.name)
+        if config and not config.enabled:
+            continue
+        if parser.can_parse(item):
+            return parser
+    return None
+
+
 def _persist_record(source, report, record):
     if record.record_type == "vulnerability_finding":
         payload = record.payload
-        dedup_hash = make_hash(source.pk, payload["cve"], payload["affected_product"])
+        dedup_hash = make_hash(
+            source.pk,
+            "vulnerability_finding",
+            payload.get("source") or payload.get("source_system"),
+            payload["cve"],
+            payload["affected_product"],
+            payload.get("organization"),
+        )
+        cvss = payload.get("cvss")
         finding = SecurityVulnerabilityFinding.objects.create(
             source=source,
             report=report,
             cve=payload["cve"],
             affected_product=payload["affected_product"],
-            cvss=payload["cvss"],
+            cvss=float(cvss) if cvss is not None else 0,
             exposed_devices=payload["exposed_devices"],
             severity=payload.get("severity", Severity.HIGH),
             dedup_hash=dedup_hash,
