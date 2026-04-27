@@ -3,7 +3,7 @@ import os
 from celery import Celery
 
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "security_center_ai.settings.dev")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "security_center_ai.settings")
 
 app = Celery("security_center_ai")
 app.config_from_object("django.conf:settings", namespace="CELERY")

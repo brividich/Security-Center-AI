@@ -1,6 +1,6 @@
 from django.urls import include, path
 
-from .api import router
+from .api import SecurityAddonDetailApiView, SecurityAddonsApiView, SecurityHealthApiView, router
 from . import views
 
 
@@ -29,5 +29,10 @@ urlpatterns = [
     path("security/admin/config/audit/", views.admin_config_audit, name="admin_config_audit"),
     path("security/admin/diagnostics/", views.admin_diagnostics, name="admin_diagnostics"),
     path("security/admin/docs/", views.admin_docs, name="admin_docs"),
+    path("security/admin/addons/", views.admin_addons, name="admin_addons"),
+    path("security/admin/addons/<slug:code>/", views.admin_addon_detail, name="admin_addon_detail"),
+    path("api/security/health/", SecurityHealthApiView.as_view(), name="api_security_health"),
+    path("api/security/addons/", SecurityAddonsApiView.as_view(), name="api_addons"),
+    path("api/security/addons/<slug:code>/", SecurityAddonDetailApiView.as_view(), name="api_addon_detail"),
     path("api/", include(router.urls)),
 ]

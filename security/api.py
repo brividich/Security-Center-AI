@@ -1,5 +1,7 @@
 from rest_framework import routers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
+from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from .models import (
@@ -31,6 +33,32 @@ from .services.ingestion import ingest_mailbox_message, ingest_source_file
 from .services.kpi_service import build_daily_kpi_snapshots
 from .services.parser_engine import run_pending_parsers
 from .services.rule_engine import evaluate_security_rules
+from .permissions import CanViewSecurityCenter
+from .services.addon_registry import get_addon_detail, get_addon_registry
+
+
+class SecurityHealthApiView(APIView):
+    permission_classes = [CanViewSecurityCenter]
+
+    def get(self, request):
+        return Response({"status": "ok"})
+
+
+class SecurityAddonsApiView(APIView):
+    permission_classes = [CanViewSecurityCenter]
+
+    def get(self, request):
+        return Response({"addons": get_addon_registry()})
+
+
+class SecurityAddonDetailApiView(APIView):
+    permission_classes = [CanViewSecurityCenter]
+
+    def get(self, request, code):
+        addon = get_addon_detail(code)
+        if addon is None:
+            raise NotFound("Unknown addon.")
+        return Response(addon)
 
 
 class SecuritySourceViewSet(viewsets.ModelViewSet):

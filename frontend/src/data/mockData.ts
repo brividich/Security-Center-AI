@@ -13,6 +13,7 @@ import type {
 
 export const navItems: NavItem[] = [
   { key: "overview", label: "Command Center", icon: "shield" },
+  { key: "addons", label: "Addons", icon: "disk" },
   { key: "inbox", label: "Event Inbox", icon: "mail" },
   { key: "assets", label: "Asset Signals", icon: "network" },
   { key: "reports", label: "Reports", icon: "file" },

@@ -6,7 +6,7 @@ set "VENV_PY=%ROOT%.venv\Scripts\python.exe"
 set "ROOT=%~dp0"
 set "PORT=8000"
 set "HOST=0.0.0.0"
-set "SETTINGS=config.settings.dev"
+set "SETTINGS=security_center_ai.settings"
 set "RUNSERVER_FLAGS="
 set "DRY_RUN="
 
