@@ -2,6 +2,7 @@ from django.db.models import Count
 from django.utils import timezone
 
 from security.models import SecurityAlert, SecurityAlertActionLog, SecurityAlertSuppressionRule, SecurityEventRecord, Severity, Status
+from security.services.alert_lifecycle import ACTIVE_ALERT_STATUSES
 from security.services.evidence_builder import build_evidence_container
 from security.services.ticketing import create_backup_ticket, create_or_update_cve_ticket
 
@@ -87,6 +88,10 @@ def _evaluate_backup(event):
         event.decision_trace = {"decision": "kpi_only", "rule": "Backup completed => KPI only"}
         event.save(update_fields=["decision_trace"])
         return
+    if status == "unknown":
+        event.decision_trace = {"decision": "diagnostic_event", "rule": "Backup status unknown => diagnostic only"}
+        event.save(update_fields=["decision_trace"])
+        return
     trace = {"decision": "alert", "rule": "Backup missing/failed => alert + evidence", "backup_status": status}
     alert, alert_created = _get_or_create_active_alert(
         source=event.source,
@@ -141,9 +146,8 @@ def _evaluate_vpn(event):
 
 
 def _get_or_create_active_alert(source, event, title, severity, dedup_hash, decision_trace):
-    active_statuses = [Status.NEW, Status.OPEN, Status.IN_PROGRESS]
     alert = (
-        SecurityAlert.objects.filter(source=source, dedup_hash=dedup_hash, status__in=active_statuses)
+        SecurityAlert.objects.filter(source=source, dedup_hash=dedup_hash, status__in=ACTIVE_ALERT_STATUSES)
         .order_by("-updated_at")
         .first()
     )

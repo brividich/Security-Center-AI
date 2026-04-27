@@ -1,0 +1,16 @@
+<div class="sec-section-head"><h2>Stato pipeline</h2>{% if last_pipeline_run %}<span class="sec-badge">{{ last_pipeline_run.action }}</span>{% endif %}</div>
+{% if last_pipeline_run %}
+  <div class="sec-fact-grid">
+    <div class="sec-fact"><span>Started</span><strong>{{ last_pipeline_run.started_at }}</strong></div>
+    <div class="sec-fact"><span>Finished</span><strong>{{ last_pipeline_run.finished_at }}</strong></div>
+    <div class="sec-fact"><span>Reports parsed</span><strong>{{ last_pipeline_run.reports_parsed }}</strong></div>
+    <div class="sec-fact"><span>Rules evaluated</span><strong>{{ last_pipeline_run.rules_evaluated }}</strong></div>
+    <div class="sec-fact"><span>Alerts created</span><strong>{{ last_pipeline_run.alerts_created }}</strong></div>
+    <div class="sec-fact"><span>Deduplicated</span><strong>{{ last_pipeline_run.alerts_deduplicated }}</strong></div>
+    <div class="sec-fact"><span>KPIs built</span><strong>{{ last_pipeline_run.kpis_built }}</strong></div>
+    <div class="sec-fact"><span>Errors</span><strong>{% if last_pipeline_run.errors %}{{ last_pipeline_run.errors|length }}{% else %}0{% endif %}</strong></div>
+  </div>
+  {% if last_pipeline_run.errors %}<pre style="margin-top: 12px;">{{ last_pipeline_run.errors }}</pre>{% endif %}
+{% else %}
+  <p class="sec-empty">No pipeline run recorded in this browser session.</p>
+{% endif %}

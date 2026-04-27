@@ -46,9 +46,9 @@ class SecurityEventRecordAdmin(admin.ModelAdmin):
 
 @admin.register(models.SecurityAlert)
 class SecurityAlertAdmin(admin.ModelAdmin):
-    list_display = ("title", "source", "severity", "status", "created_at")
+    list_display = ("title", "source", "severity", "status", "owner", "snoozed_until", "created_at")
     list_filter = ("severity", "status", "source")
-    search_fields = ("title", "dedup_hash")
+    search_fields = ("title", "dedup_hash", "owner")
 
 
 @admin.register(models.SecurityEvidenceContainer)

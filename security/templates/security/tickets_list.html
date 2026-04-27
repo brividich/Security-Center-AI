@@ -1,0 +1,36 @@
+{% extends "security/base.html" %}
+
+{% block title %}Remediation Board | Security Center AI{% endblock %}
+{% block page_icon %}◫{% endblock %}
+{% block page_marker %}Remediation Board{% endblock %}
+{% block page_title %}Tickets / Remediation{% endblock %}
+
+{% block content %}
+<section class="sec-panel">
+  <div class="sec-section-head">
+    <h2>Remediation Tickets</h2>
+    <span class="sec-badge">Totale {{ tickets|length }}</span>
+  </div>
+  <div class="sec-table-wrap">
+    <table class="sec-table">
+      <thead><tr><th>Status</th><th>Severity</th><th>Title</th><th>CVE</th><th>Product</th><th>Alert</th><th>Created</th><th>Updated</th></tr></thead>
+      <tbody>
+      {% for ticket in tickets %}
+        <tr>
+          <td><span class="sec-badge {{ ticket.status }}">{{ ticket.get_status_display }}</span></td>
+          <td>{% if ticket.alert %}<span class="sec-badge {{ ticket.alert.severity }}">{{ ticket.alert.get_severity_display }}</span>{% else %}<span class="sec-muted">-</span>{% endif %}</td>
+          <td class="sec-title-cell"><strong>{{ ticket.title }}</strong><small>{{ ticket.dedup_hash|slice:":12" }}</small></td>
+          <td>{{ ticket.cve|default:"-" }}</td>
+          <td>{{ ticket.affected_product|default:"-" }}</td>
+          <td>{% if ticket.alert %}<a href="{% url 'security:alert_detail' ticket.alert.pk %}">{{ ticket.alert.title }}</a>{% else %}<span class="sec-muted">None</span>{% endif %}</td>
+          <td>{{ ticket.created_at|date:"d M Y, H:i" }}</td>
+          <td>{{ ticket.updated_at|date:"d M Y, H:i" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="sec-empty">No remediation tickets yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

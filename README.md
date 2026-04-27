@@ -51,8 +51,29 @@ python manage.py runserver
 Open:
 
 - Dashboard: http://127.0.0.1:8000/
+- Security UI: http://127.0.0.1:8000/security/
 - Admin: http://127.0.0.1:8000/admin/
 - API root: http://127.0.0.1:8000/api/
+
+## UI MVP
+
+The server-side Django UI provides the first operational workflow:
+
+- `/security/` dashboard with open alerts, critical alerts, open tickets, daily reports, daily evidence, latest critical CVEs, latest alerts, and last pipeline run for the browser session.
+- `/security/alerts/` alert list with filters for severity, status, source, and date.
+- `/security/alerts/<id>/` alert detail with linked ticket, evidence, occurrences, audit log, source report, CVE fields, and quick actions.
+- `/security/tickets/` remediation ticket list.
+- `/security/kpis/` daily KPI snapshots with previous/next day navigation.
+- `/security/pipeline/` operational buttons for parsers, rule evaluation, KPI build, and full pipeline.
+
+Alert quick actions write `SecurityAlertActionLog` entries. Pipeline buttons call the same services used by management commands and APIs.
+
+Alert lifecycle states are:
+
+- Active/deduplicated: `new`, `open`, `acknowledged`, `in_progress`, `snoozed`, `muted`
+- Terminal/not deduplicated: `closed`, `false_positive`, `resolved`, `suppressed`
+
+The alert detail page supports acknowledge, close, false positive, snooze, and reopen actions. Each action records old/new status, actor, reason, and snooze expiry when present.
 
 ## API MVP
 
