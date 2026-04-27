@@ -1,0 +1,2 @@
+<span class="sec-badge {{ alert.status }}">{{ alert.get_status_display }}</span>
+{% if alert.snoozed_until %}<span class="sec-muted">until {{ alert.snoozed_until|date:"Y-m-d H:i" }}</span>{% endif %}

@@ -17,8 +17,13 @@ class Severity(models.TextChoices):
 class Status(models.TextChoices):
     NEW = "new", "New"
     OPEN = "open", "Open"
+    ACKNOWLEDGED = "acknowledged", "Acknowledged"
     IN_PROGRESS = "in_progress", "In progress"
+    SNOOZED = "snoozed", "Snoozed"
+    MUTED = "muted", "Muted"
     CLOSED = "closed", "Closed"
+    FALSE_POSITIVE = "false_positive", "False positive"
+    RESOLVED = "resolved", "Resolved"
     SUPPRESSED = "suppressed", "Suppressed"
 
 
@@ -196,6 +201,11 @@ class SecurityAlert(models.Model):
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.NEW, db_index=True)
     dedup_hash = models.CharField(max_length=64, db_index=True)
     decision_trace = models.JSONField(default=dict)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    snoozed_until = models.DateTimeField(null=True, blank=True)
+    status_reason = models.TextField(blank=True)
+    owner = models.CharField(max_length=120, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
