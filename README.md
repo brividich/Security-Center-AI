@@ -2,6 +2,8 @@
 
 Security Report Intelligence MVP built with Django, SQL Server support, Celery, Redis, Django admin, DRF read APIs, modular parsers, rule evaluation, deduplication, KPI snapshots, evidence containers, and remediation tickets.
 
+Current version: 0.5.3
+
 ## Install
 
 ```powershell
