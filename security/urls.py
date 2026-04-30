@@ -1,6 +1,30 @@
 from django.urls import include, path
 
-from .api import SecurityAddonDetailApiView, SecurityAddonsApiView, SecurityHealthApiView, router
+from .api import (
+    AddonsSummaryApiView,
+    DashboardSummaryApiView,
+    InboxRecentApiView,
+    KpiSummaryApiView,
+    RecentAlertsApiView,
+    SecurityAddonDetailApiView,
+    SecurityAddonsApiView,
+    SecurityHealthApiView,
+    router,
+)
+from .api_configuration import (
+    ConfigurationOverviewApiView,
+    ConfigurationSourcesApiView,
+    ConfigurationRulesApiView,
+    ConfigurationNotificationsApiView,
+    ConfigurationSuppressionsApiView,
+    ConfigurationTestApiView,
+    ConfigurationSourcePresetsApiView,
+    ConfigurationSourceCreateApiView,
+    ConfigurationSourceUpdateApiView,
+    ConfigurationSourceToggleApiView,
+    ConfigurationSourceIngestApiView,
+    GraphSettingsApiView,
+)
 from . import views
 
 
@@ -31,8 +55,25 @@ urlpatterns = [
     path("security/admin/docs/", views.admin_docs, name="admin_docs"),
     path("security/admin/addons/", views.admin_addons, name="admin_addons"),
     path("security/admin/addons/<slug:code>/", views.admin_addon_detail, name="admin_addon_detail"),
+    path("security/api/dashboard-summary/", DashboardSummaryApiView.as_view(), name="api_dashboard_summary"),
+    path("security/api/alerts/recent/", RecentAlertsApiView.as_view(), name="api_alerts_recent"),
+    path("security/api/inbox/recent/", InboxRecentApiView.as_view(), name="api_inbox_recent"),
+    path("security/api/kpis/summary/", KpiSummaryApiView.as_view(), name="api_kpis_summary"),
+    path("security/api/addons/summary/", AddonsSummaryApiView.as_view(), name="api_addons_summary"),
     path("api/security/health/", SecurityHealthApiView.as_view(), name="api_security_health"),
     path("api/security/addons/", SecurityAddonsApiView.as_view(), name="api_addons"),
     path("api/security/addons/<slug:code>/", SecurityAddonDetailApiView.as_view(), name="api_addon_detail"),
+    path("security/api/configuration/overview/", ConfigurationOverviewApiView.as_view(), name="api_configuration_overview"),
+    path("security/api/configuration/sources/", ConfigurationSourcesApiView.as_view(), name="api_configuration_sources"),
+    path("security/api/configuration/source-presets/", ConfigurationSourcePresetsApiView.as_view(), name="api_configuration_source_presets"),
+    path("security/api/configuration/sources/create/", ConfigurationSourceCreateApiView.as_view(), name="api_configuration_source_create"),
+    path("security/api/configuration/sources/<slug:code>/", ConfigurationSourceUpdateApiView.as_view(), name="api_configuration_source_update"),
+    path("security/api/configuration/sources/<slug:code>/toggle/", ConfigurationSourceToggleApiView.as_view(), name="api_configuration_source_toggle"),
+    path("security/api/configuration/sources/<slug:code>/ingest/", ConfigurationSourceIngestApiView.as_view(), name="api_configuration_source_ingest"),
+    path("security/api/configuration/graph/settings/", GraphSettingsApiView.as_view(), name="api_configuration_graph_settings"),
+    path("security/api/configuration/rules/", ConfigurationRulesApiView.as_view(), name="api_configuration_rules"),
+    path("security/api/configuration/notifications/", ConfigurationNotificationsApiView.as_view(), name="api_configuration_notifications"),
+    path("security/api/configuration/suppressions/", ConfigurationSuppressionsApiView.as_view(), name="api_configuration_suppressions"),
+    path("security/api/configuration/test/", ConfigurationTestApiView.as_view(), name="api_configuration_test"),
     path("api/", include(router.urls)),
 ]

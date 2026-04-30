@@ -18,19 +18,22 @@ export function MobileTopBar({ navItems, active, onNavigate }: MobileTopBarProps
           Security Center AI
         </div>
       </div>
-      <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Mobile navigation">
-        {navItems.map((item) => (
-          <button
-            key={item.key}
-            onClick={() => onNavigate(item.key)}
-            className={`flex shrink-0 items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold ${
-              active === item.key ? "bg-blue-600 text-white" : "bg-white/10 text-slate-300"
-            }`}
-          >
-            <Icon name={item.icon} className="h-4 w-4" />
-            {item.label}
-          </button>
-        ))}
+      <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Navigazione mobile">
+        {navItems.map((item) => {
+          const isActive = active === item.key || (item.key === "modules" && active.startsWith("module-"));
+          return (
+            <button
+              key={item.key}
+              onClick={() => onNavigate(item.key)}
+              className={`flex shrink-0 items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold ${
+                isActive ? "bg-blue-600 text-white" : "bg-white/10 text-slate-300"
+              }`}
+            >
+              <Icon name={item.icon} className="h-4 w-4" />
+              {item.label}
+            </button>
+          );
+        })}
       </nav>
     </div>
   );

@@ -2,7 +2,11 @@
 
 Security Report Intelligence MVP built with Django, SQL Server support, Celery, Redis, Django admin, DRF read APIs, modular parsers, rule evaluation, deduplication, KPI snapshots, evidence containers, and remediation tickets.
 
-Current version: 0.5.3
+Current version: 0.7.1
+
+## React Control Center
+
+The React app is the single operator-facing UI for configuration, source health, incoming data monitoring, and report management. It renders live backend data only: when APIs are empty or unavailable, the UI shows explicit empty/error states instead of synthetic demo rows.
 
 ## Install
 
@@ -35,15 +39,6 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
-## Demo Data
-
-```powershell
-python manage.py ingest_sample_security_data
-python manage.py run_security_parsers
-python manage.py evaluate_security_rules
-python manage.py build_daily_kpi_snapshots
-```
-
 ## Run
 
 ```powershell
@@ -52,23 +47,20 @@ python manage.py runserver
 
 Open:
 
-- Dashboard: http://127.0.0.1:8000/
-- Security UI: http://127.0.0.1:8000/security/
-- Admin: http://127.0.0.1:8000/admin/
+- React app: http://127.0.0.1:8000/
 - API root: http://127.0.0.1:8000/api/
 
-## UI MVP
+## Operator UI
 
-The server-side Django UI provides the first operational workflow:
+The React Control Center is the primary operational workflow:
 
-- `/security/` dashboard with open alerts, critical alerts, open tickets, daily reports, daily evidence, latest critical CVEs, latest alerts, and last pipeline run for the browser session.
-- `/security/alerts/` alert list with filters for severity, status, source, and date.
-- `/security/alerts/<id>/` alert detail with linked ticket, evidence, occurrences, audit log, source report, CVE fields, and quick actions.
-- `/security/tickets/` remediation ticket list.
-- `/security/kpis/` daily KPI snapshots with previous/next day navigation.
-- `/security/pipeline/` operational buttons for parsers, rule evaluation, KPI build, and full pipeline.
+- `/` dashboard with KPI distribution, source coverage, incoming data, recent alerts, and report activity.
+- `/configuration` source, rule, notification, suppression, and test configuration.
+- `/inbox` incoming mailbox/upload monitoring and parsing status.
+- `/reports` imported report review, filters, detail, pipeline state, and internal action tracking.
+- `/integrations/microsoft-graph` Graph credential status, mailbox folder, and sync actions.
 
-Alert quick actions write `SecurityAlertActionLog` entries. Pipeline buttons call the same services used by management commands and APIs.
+Alert quick actions write `SecurityAlertActionLog` entries. Pipeline actions call the same services used by management commands and APIs.
 
 Alert lifecycle states are:
 
@@ -93,7 +85,7 @@ curl -X POST http://127.0.0.1:8000/api/sources/1/ingest-mailbox-message/ `
 
 curl -X POST http://127.0.0.1:8000/api/sources/1/ingest-source-file/ `
   -H "Content-Type: application/json" `
-  -d "{\"original_name\":\"vpn-denied.csv\",\"file_type\":\"csv\",\"content\":\"timestamp,user,src_ip,result\n2026-04-27T10:00:00Z,mario,10.0.0.5,denied\"}"
+  -d "{\"original_name\":\"vpn-denied.csv\",\"file_type\":\"csv\",\"content\":\"timestamp,user,src_ip,result\n2026-04-27T10:00:00Z,user1,192.0.2.10,denied\"}"
 ```
 
 Pipeline actions:

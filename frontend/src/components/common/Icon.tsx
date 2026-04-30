@@ -127,7 +127,21 @@ export function Icon({ name = "circle", className = "h-5 w-5" }: IconProps) {
       </>
     ),
     chevron: <path d="m9 18 6-6-6-6" />,
+    grid: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </>
+    ),
     circle: <circle cx="12" cy="12" r="9" />,
+    settings: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.2 4.2 4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.2-4.2 4.2-4.2" />
+      </>
+    ),
   };
 
   return <svg {...common}>{paths[name]}</svg>;

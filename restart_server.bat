@@ -1,12 +1,9 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions
 
-set "APP_DIR=%ROOT%"
-set "VENV_PY=%ROOT%.venv\Scripts\python.exe"
 set "ROOT=%~dp0"
-set "PORT=8000"
-set "HOST=0.0.0.0"
-set "SETTINGS=security_center_ai.settings"
+set "VENV_PY=%ROOT%.venv\Scripts\python.exe"
+set "BACKEND_URL=http://127.0.0.1:8000/security/"
 set "RUNSERVER_FLAGS="
 set "DRY_RUN="
 
@@ -14,70 +11,53 @@ if /I "%~1"=="--noreload" set "RUNSERVER_FLAGS=--noreload"
 if /I "%~1"=="--dry-run" set "DRY_RUN=1"
 if /I "%~2"=="--dry-run" set "DRY_RUN=1"
 
-echo.
-echo ==========================================
-echo   Riavvio server Django
-echo ==========================================
-echo Root:     %ROOT%
-echo App dir:  %APP_DIR%
-echo Python:   %VENV_PY%
-echo Porta:    %PORT%
-echo Settings: %SETTINGS%
-echo.
-
-echo Chiudo eventuali listener attivi sulla porta %PORT%...
-
-set "FOUND_PORT_PID="
-
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
-    echo   - stop PID %%P
-    taskkill /F /PID %%P >nul 2>&1
-    set "FOUND_PORT_PID=1"
-)
-
-if not defined FOUND_PORT_PID (
-    echo   - nessun listener attivo trovato sulla porta %PORT%
-)
+cd /d "%ROOT%"
 
 echo.
-echo Attendo rilascio porta...
-timeout /t 1 /nobreak >nul
+echo Security Center AI - Backend Restart
+echo.
 
 if not exist "%VENV_PY%" (
-    echo.
-    echo ERRORE: interprete Python non trovato:
-    echo %VENV_PY%
-    echo.
+    echo Virtual environment not found.
+    echo Create it with:
+    echo python -m venv .venv
+    echo .venv\Scripts\python.exe -m pip install -r requirements.txt
     exit /b 1
 )
 
-if not exist "%APP_DIR%manage.py" (
-    echo.
-    echo ERRORE: manage.py non trovato in:
-    echo %APP_DIR%
-    echo.
+if not exist "%ROOT%manage.py" (
+    echo manage.py not found in:
+    echo %ROOT%
     exit /b 1
 )
 
-cd /d "%APP_DIR%"
+if not defined DJANGO_SETTINGS_MODULE set "DJANGO_SETTINGS_MODULE=security_center_ai.settings"
+if not defined DJANGO_DEBUG set "DJANGO_DEBUG=True"
+if not defined DEBUG set "DEBUG=True"
+if not defined DJANGO_ALLOWED_HOSTS set "DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost"
+if not defined ALLOWED_HOSTS set "ALLOWED_HOSTS=127.0.0.1,localhost"
+if not defined DJANGO_CSRF_TRUSTED_ORIGINS set "DJANGO_CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:5173,http://localhost:5173"
+if not defined CSRF_TRUSTED_ORIGINS set "CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:5173,http://localhost:5173"
+if not defined CORS_ALLOWED_ORIGINS set "CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173"
+if not defined SECURITY_CENTER_DEV_MODE set "SECURITY_CENTER_DEV_MODE=True"
 
-set "DJANGO_SETTINGS_MODULE=%SETTINGS%"
+echo Checking backend port...
+if defined DRY_RUN (
+    echo Dry run: skipping port cleanup.
+) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\stop_dev_port.ps1" -Port 8000
+    timeout /t 1 /nobreak >nul
+)
 
 if defined DRY_RUN (
     echo.
-    echo Dry run completato. Server non avviato.
-    echo.
+    echo Dry run completed. Server not started.
     exit /b 0
 )
 
 echo.
-if defined RUNSERVER_FLAGS (
-    echo Avvio server Django HTTP su %HOST%:%PORT% con flag: %RUNSERVER_FLAGS%
-) else (
-    echo Avvio server Django HTTP su %HOST%:%PORT% con autoreload attivo
-)
-
+echo Starting backend: %BACKEND_URL%
 echo.
-"%VENV_PY%" manage.py runserver %HOST%:%PORT% %RUNSERVER_FLAGS%
+"%VENV_PY%" manage.py runserver 127.0.0.1:8000 %RUNSERVER_FLAGS%
 
 endlocal

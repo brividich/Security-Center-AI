@@ -2,9 +2,6 @@ export type AddonStatus = "enabled" | "disabled" | "warning" | "misconfigured";
 
 export interface AddonLinks {
   api_detail: string;
-  django_config: string;
-  django_diagnostics: string;
-  django_docs: string;
 }
 
 export interface AddonSummary {

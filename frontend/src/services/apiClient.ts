@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+import { API_BASE_URL, API_TIMEOUT_MS } from "./config";
 
 export class ApiError extends Error {
   status: number;
@@ -10,16 +10,23 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "GET",
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) {
-    throw new ApiError(`Request failed with status ${response.status}`, response.status);
+export async function apiGet<T>(path: string, timeoutMs = API_TIMEOUT_MS): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new ApiError(`Request failed with status ${response.status}`, response.status);
+    }
+    return (await response.json()) as T;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return (await response.json()) as T;
 }
 
 export const apiClient = {
