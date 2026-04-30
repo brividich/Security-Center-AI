@@ -198,6 +198,7 @@ class SecurityMailboxMessage(models.Model):
     parse_status = models.CharField(max_length=24, choices=ParseStatus.choices, default=ParseStatus.PENDING, db_index=True)
     fingerprint = models.CharField(max_length=64, blank=True, db_index=True)
     raw_payload = models.JSONField(default=dict, blank=True)
+    pipeline_result = models.JSONField(default=dict, blank=True)
 
     class Meta:
         indexes = [
@@ -611,3 +612,74 @@ class SecurityAlertActionLog(models.Model):
         indexes = [
             models.Index(fields=["action", "created_at"]),
         ]
+
+
+class SecurityMailboxSource(models.Model):
+    SOURCE_TYPE_CHOICES = [
+        ("manual", "Manual"),
+        ("mock", "Mock"),
+        ("graph", "Microsoft Graph"),
+        ("imap", "IMAP"),
+    ]
+
+    name = models.CharField(max_length=160, unique=True)
+    code = models.CharField(max_length=80, unique=True, db_index=True)
+    enabled = models.BooleanField(default=True, db_index=True)
+    source_type = models.CharField(max_length=32, choices=SOURCE_TYPE_CHOICES, default="manual")
+    mailbox_address = models.EmailField(blank=True)
+    description = models.TextField(blank=True)
+    sender_allowlist_text = models.TextField(blank=True)
+    subject_include_text = models.TextField(blank=True)
+    subject_exclude_text = models.TextField(blank=True)
+    body_include_text = models.TextField(blank=True)
+    attachment_extensions = models.CharField(max_length=255, blank=True)
+    max_messages_per_run = models.PositiveIntegerField(default=50)
+    mark_as_read_after_import = models.BooleanField(default=False)
+    process_attachments = models.BooleanField(default=True)
+    process_email_body = models.BooleanField(default=True)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    last_error_at = models.DateTimeField(null=True, blank=True)
+    last_error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["enabled", "source_type"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class SecurityMailboxIngestionRun(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("running", "Running"),
+        ("success", "Success"),
+        ("partial", "Partial"),
+        ("failed", "Failed"),
+    ]
+
+    source = models.ForeignKey(SecurityMailboxSource, on_delete=models.CASCADE, related_name="ingestion_runs")
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="pending", db_index=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    imported_messages_count = models.PositiveIntegerField(default=0)
+    skipped_messages_count = models.PositiveIntegerField(default=0)
+    duplicate_messages_count = models.PositiveIntegerField(default=0)
+    imported_files_count = models.PositiveIntegerField(default=0)
+    processed_items_count = models.PositiveIntegerField(default=0)
+    generated_alerts_count = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    details = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["source", "started_at"]),
+            models.Index(fields=["status", "started_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.source.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"

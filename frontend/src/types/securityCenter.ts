@@ -1,6 +1,20 @@
 import type { ReactNode } from "react";
 
-export type PageKey = "overview" | "addons" | "inbox" | "assets" | "reports" | "evidence" | "rules";
+export type PageKey =
+  | "overview"
+  | "addons"
+  | "microsoft-graph"
+  | "modules"
+  | "module-watchguard"
+  | "module-microsoft-defender"
+  | "module-backup-nas"
+  | "module-custom"
+  | "inbox"
+  | "assets"
+  | "reports"
+  | "evidence"
+  | "rules"
+  | "configuration";
 export type Tone = "neutral" | "good" | "warning" | "danger" | "info" | "dark";
 export type Severity = "critical" | "high" | "medium" | "warning" | "low";
 export type IconName =
@@ -20,12 +34,16 @@ export type IconName =
   | "eye"
   | "check"
   | "chevron"
-  | "circle";
+  | "grid"
+  | "circle"
+  | "settings";
 
 export interface NavItem {
   key: PageKey;
   label: string;
   icon: IconName;
+  section: "control" | "operations" | "analysis";
+  description: string;
 }
 
 export interface DayKpi {
@@ -82,12 +100,15 @@ export interface TimelineItem {
 
 export interface ReportItem {
   id: string;
+  kind: "report" | "mailbox" | "file";
   name: string;
   source: string;
-  status: "Processed" | "Pending" | "Suppressed";
+  status: "Processed" | "Pending" | "Failed" | "Suppressed";
   metrics: number;
   alerts: number;
   receivedAt: string;
+  parserName?: string;
+  detail?: string;
 }
 
 export interface RuleItem {

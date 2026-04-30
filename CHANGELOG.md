@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.7.1] - 2026-04-30
+
+### Changed
+- Reworked the React frontend into one operator-facing Control Center for KPI distribution, source configuration, incoming data monitoring, and report management.
+- Reimagined report management around live report queues, parser/source/status filters, selected report details, pipeline state, and internal action tracking.
+- Removed visible React links and shortcuts that pushed operators into older backend/admin UI paths.
+- Updated source wizard presets and validation so new configurable sources use live `manual`, `graph`, or `imap` origins instead of `mock`.
+- Updated current project and frontend package metadata to version `0.7.1`.
+
+### Fixed
+- Removed frontend demo/mock fallback datasets and replaced them with explicit empty and error states backed by real API responses.
+- Added latest ingestion run status, timestamps, and safe error text to source DTOs so Graph and mailbox sync status can be monitored from the React UI.
+
+### Security
+- No real tenant IDs, credentials, mailbox contents, hostnames, IPs, or operational reports were added.
+- Graph secrets remain write-only in the UI and server-side in backend settings.
+
+### Validation
+- `npm --prefix frontend run build` - OK, with existing Vite chunk-size warning
+- `python manage.py check` - OK
+- `python manage.py test security.tests.test_react_backend_api security.tests.test_api_configuration security.tests.test_api_configuration_wizard` - OK, 41 tests
+- python manage.py test security.tests.test_mailbox_ingestion security.tests.test_mailbox_ingestion_pipeline - OK, 51 tests
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `git diff --cached --check` - OK
+- `gitleaks detect --source . --no-git --verbose` - not run because a broad local scan would inspect files/directories excluded by the repository data-handling rules
+
 ## [0.5.3] - 2026-04-28
 
 ### Fixed

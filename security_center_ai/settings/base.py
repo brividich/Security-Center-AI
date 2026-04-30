@@ -8,20 +8,101 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
-def env_bool(name, default=False):
-    value = os.getenv(name)
+def _env_bool(env, name, default=False):
+    value = env.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"true", "1", "yes", "on"}
 
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-me")
-DEBUG = env_bool("DJANGO_DEBUG", False)
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-    if host.strip()
-]
+def env_bool(name, default=False):
+    return _env_bool(os.environ, name, default)
+
+
+def env_list(name, default=""):
+    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
+
+def _database_engine_name(value):
+    engine = (value or "sqlite").strip().lower()
+    if engine in {"mssql", "sqlserver", "sql_server"}:
+        return "mssql"
+    if engine in {"sqlite", "sqlite3", "django.db.backends.sqlite3"}:
+        return "django.db.backends.sqlite3"
+    return value
+
+
+def _first_env(env, *names, default=""):
+    for name in names:
+        value = env.get(name)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def build_database_config(env=None, base_dir=None):
+    if env is None:
+        env = os.environ
+    base_dir = Path(base_dir or BASE_DIR)
+    requested_engine = _first_env(env, "DB_ENGINE", "DATABASE_ENGINE", default="sqlite")
+    engine = _database_engine_name(requested_engine)
+
+    if engine == "mssql":
+        extra_params = []
+        if _env_bool(env, "DB_TRUSTED_CONNECTION", False):
+            extra_params.append("Trusted_Connection=yes")
+        if _env_bool(env, "DB_TRUST_SERVER_CERTIFICATE", False):
+            extra_params.append("TrustServerCertificate=yes")
+
+        legacy_extra_params = env.get("SQLSERVER_EXTRA_PARAMS", "").strip()
+        if legacy_extra_params:
+            extra_params.append(legacy_extra_params)
+
+        return {
+            "ENGINE": "mssql",
+            "NAME": _first_env(
+                env,
+                "DB_NAME",
+                "SQLSERVER_DATABASE",
+                "DATABASE_NAME",
+                default="SecurityCenterAI_TEST",
+            ),
+            "USER": _first_env(env, "DB_USER", "SQLSERVER_USER"),
+            "PASSWORD": _first_env(env, "DB_PASSWORD", "SQLSERVER_PASSWORD"),
+            "HOST": _first_env(env, "DB_HOST", "SQLSERVER_HOST", default="localhost\\SQLEXPRESS"),
+            "PORT": _first_env(env, "DB_PORT", "SQLSERVER_PORT"),
+            "OPTIONS": {
+                "driver": _first_env(
+                    env,
+                    "DB_DRIVER",
+                    "SQLSERVER_DRIVER",
+                    default="ODBC Driver 18 for SQL Server",
+                ),
+                "extra_params": ";".join(extra_params),
+            },
+        }
+
+    database_name = _first_env(env, "DATABASE_NAME", default="db.sqlite3")
+    database_path = Path(database_name)
+    if not database_path.is_absolute():
+        database_name = base_dir / database_path
+
+    return {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": database_name,
+    }
+
+
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", os.getenv("SECRET_KEY", "dev-only-change-me"))
+DEBUG = env_bool("DJANGO_DEBUG", env_bool("DEBUG", False))
+ALLOWED_HOSTS = env_list(
+    "DJANGO_ALLOWED_HOSTS",
+    os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1"),
+)
+CSRF_TRUSTED_ORIGINS = env_list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    os.getenv("CSRF_TRUSTED_ORIGINS", ""),
+)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -66,17 +147,8 @@ TEMPLATES = [
 WSGI_APPLICATION = "security_center_ai.wsgi.application"
 ASGI_APPLICATION = "security_center_ai.asgi.application"
 
-database_name = os.getenv("DATABASE_NAME", "db.sqlite3")
-if os.getenv("DATABASE_ENGINE", "django.db.backends.sqlite3") == "django.db.backends.sqlite3":
-    database_path = Path(database_name)
-    if not database_path.is_absolute():
-        database_name = BASE_DIR / database_path
-
 DATABASES = {
-    "default": {
-        "ENGINE": os.getenv("DATABASE_ENGINE", "django.db.backends.sqlite3"),
-        "NAME": database_name,
-    }
+    "default": build_database_config()
 }
 
 LANGUAGE_CODE = "en-us"
@@ -88,6 +160,10 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+FRONTEND_DIST_DIR = Path(os.getenv("FRONTEND_DIST_DIR", str(BASE_DIR / "frontend" / "dist")))
+SERVE_REACT_APP = env_bool("SERVE_REACT_APP", True)
+REACT_APP_BASE_PATH = os.getenv("REACT_APP_BASE_PATH", "/")
+
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
@@ -95,11 +171,7 @@ REST_FRAMEWORK = {
     ]
 }
 
-CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
-    if origin.strip()
-]
+CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
