@@ -93,12 +93,16 @@ Il modulo `security/services/security_inbox_pipeline.py` fornisce elaborazione u
 - **Comportamento:** Restituisce lista vuota, nessuna connessione esterna
 - **Uso:** Default per nuove sorgenti
 
-### Microsoft Graph (Futuro)
+### Microsoft Graph
 
 - **Tipo:** `graph`
 - **Scopo:** Mailbox Microsoft 365 / Exchange Online
-- **Stato:** Placeholder, non implementato
-- **Requisiti:** Credenziali Graph API, permessi Mail.Read
+- **Stato:** Implementato per lettura messaggi e allegati file tramite backend Django
+- **Requisiti:** `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, permessi applicativi Graph approvati da amministratore
+- **Cartella:** `GRAPH_MAIL_FOLDER`, default `Inbox`
+- **Configurazione:** dalla pagina React Microsoft Graph oppure tramite variabili/server setting Django
+- **Cartelle custom:** i nomi visibili come `SECURITY` vengono risolti via Graph prima dell'importazione
+- **Sicurezza:** il client secret salvato dalla UI resta write-only e lato server; non inserirlo in React, fixture, screenshot o documentazione
 
 ### IMAP (Futuro)
 
@@ -208,6 +212,9 @@ python manage.py ingest_security_mailbox [options]
 | `--process` | Elabora attraverso pipeline (default: True) |
 | `--no-process` | Importa senza elaborare |
 | `--force-reprocess` | Rielabora messaggi già processati |
+| `--loop` | Mantiene il comando in polling continuo fino a interruzione |
+| `--interval <secondi>` | Intervallo tra due run in modalita' `--loop`, default 120 |
+| `--max-runs <n>` | Ferma la modalita' `--loop` dopo N run, utile per test o job controllati |
 
 ### Esempi
 
@@ -229,6 +236,12 @@ python manage.py ingest_security_mailbox --no-process
 
 # Forza rielaborazione duplicati
 python manage.py ingest_security_mailbox --force-reprocess
+
+# Polling continuo ogni 2 minuti
+python manage.py ingest_security_mailbox --loop --interval 120
+
+# Polling controllato: due run distanziate di 2 minuti
+python manage.py ingest_security_mailbox --loop --interval 120 --max-runs 2
 ```
 
 ### Output
@@ -256,6 +269,22 @@ Ingestion complete
 
 ## Schedulazione
 
+### Polling integrato
+
+Per una sorgente Graph gia' configurata e abilitata, il modo piu' diretto per automatizzare il controllo ogni 2 minuti e' lasciare attivo il management command in modalita' polling:
+
+```bash
+python manage.py ingest_security_mailbox --loop --interval 120
+```
+
+Per limitare il polling a una sola sorgente:
+
+```bash
+python manage.py ingest_security_mailbox --source codice-sorgente --loop --interval 120
+```
+
+Il comando riusa deduplica e pipeline esistenti: i messaggi gia' importati vengono contati come duplicati e non rigenerano alert, salvo uso esplicito di `--force-reprocess`.
+
 ### Cron (Linux)
 
 ```bash
@@ -269,9 +298,11 @@ Ingestion complete
 ### Task Scheduler (Windows)
 
 1. Crea task schedulato
-2. Trigger: Giornaliero o ogni N ore
+2. Trigger: Giornaliero, ripeti ogni 2 minuti per la durata desiderata
 3. Azione: `python.exe manage.py ingest_security_mailbox`
 4. Working directory: `django_app/`
+
+In alternativa, per una sessione locale o un servizio dedicato, usa `python manage.py ingest_security_mailbox --loop --interval 120` e lascia il processo attivo.
 
 ---
 
@@ -325,7 +356,7 @@ L'endpoint `GET /security/api/configuration/sources/` include per ogni sorgente:
 
 ### Principi
 
-- **No secrets in UI**: Credenziali non esposte in pagine admin
+- **No secrets exposed**: I valori salvati non vengono restituiti alla UI; il client secret Graph resta write-only
 - **Permission-gated**: Accesso richiede `can_view_security_center`
 - **Fail-safe**: Errori non bloccano altre sorgenti
 - **Audit trail**: Ogni run tracciato in `SecurityMailboxIngestionRun`
@@ -379,7 +410,7 @@ L'endpoint `GET /security/api/configuration/sources/` include per ogni sorgente:
 
 **Rimedi:**
 1. Leggere `error_message` in dettaglio sorgente
-2. Verificare credenziali provider (quando implementato)
+2. Verificare credenziali provider e permessi della mailbox
 3. Controllare log applicazione per stack trace completo
 
 ### Provider non implementato
@@ -387,17 +418,18 @@ L'endpoint `GET /security/api/configuration/sources/` include per ogni sorgente:
 **Sintomi:** Warning log "Provider not yet implemented"
 
 **Cause:**
-- `source_type = graph` o `imap` ma provider non implementato
+- `source_type = imap` ma provider non implementato
 
 **Rimedi:**
 - Usare `source_type = mock` per testing
-- Attendere implementazione Graph/IMAP (future patch)
+- Per Graph, verificare credenziali, permessi Entra e cartella configurata nella pagina React Microsoft Graph
+- Attendere implementazione IMAP (future patch)
 
 ---
 
 ## Limitazioni Correnti
 
-1. **Provider reali non implementati**: Solo Mock disponibile
+1. **IMAP non implementato**: Mock e Microsoft Graph sono disponibili; IMAP resta placeholder
 2. **No filtro temporale**: Fetch sempre ultimi N messaggi
 3. **No mark-as-read**: Opzione presente ma non funzionale su Mock
 4. **No retry automatico**: Run falliti richiedono riesecuzione manuale
@@ -413,6 +445,20 @@ L'endpoint `GET /security/api/configuration/sources/` include per ogni sorgente:
 - Aggiunte funzioni `process_text_payload()` e `process_security_input()` al pipeline condiviso
 - `process_mailbox_message()` persiste ora `pipeline_result` dopo elaborazione
 - Suite test estesa: 31 test su pipeline, inclusi fixture sintetici (Defender CVE, Synology, WatchGuard ThreatSync, WatchGuard CSV)
+
+### 1.3 - 0.6.2 (2026-04-30)
+
+- Aggiunto salvataggio credenziali Microsoft Graph da UI React con secret write-only lato Django
+- Aggiunta diagnostica UI per permessi di salvataggio, stato configurazione e ultimo aggiornamento
+- Risolta la priorita' dei setting salvati da UI rispetto ai placeholder `.env`
+- Aggiunta risoluzione cartelle custom Graph per nome visibile, ad esempio `SECURITY`
+
+### 1.2 - 0.6.1 (2026-04-30)
+
+- Implementato provider Microsoft Graph per sorgenti `source_type=graph`
+- Aggiunto endpoint API per avviare l'ingestion di una sorgente configurata
+- Aggiunta azione React "Importa ora" per sorgenti Microsoft Graph
+- Test Graph eseguiti con risposte HTTP mockate e valori placeholder
 
 ### 1.0 - Patch 13 (2026-04-27)
 
@@ -430,4 +476,4 @@ L'endpoint `GET /security/api/configuration/sources/` include per ogni sorgente:
 
 ---
 
-**Nota:** Provider reali (Graph/IMAP) saranno implementati in patch successive. Per ora, usare Mock provider per testing e preparazione configurazioni.
+**Nota:** Il provider Microsoft Graph e' disponibile per mailbox Microsoft 365 configurate dalla pagina React Microsoft Graph oppure da setting server. Il provider IMAP resta pianificato; usare Mock provider per testing senza chiamate esterne.

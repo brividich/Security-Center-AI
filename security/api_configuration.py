@@ -392,6 +392,126 @@ def _build_run_response(run):
     }
 
 
+def _build_mailbox_ingestion_service_status(user=None):
+    expected_interval_seconds = 120
+    stale_after_seconds = expected_interval_seconds * 3
+    now = timezone.now()
+    sources = list(SecurityMailboxSource.objects.all().order_by("-enabled", "name"))
+    enabled_sources = [source for source in sources if source.enabled]
+    latest_run = SecurityMailboxIngestionRun.objects.select_related("source").order_by("-started_at").first()
+    recent_runs = list(SecurityMailboxIngestionRun.objects.select_related("source").order_by("-started_at")[:12])
+    source_items = [_build_service_source_status(source, now, stale_after_seconds) for source in sources]
+
+    failed_sources = [item for item in source_items if item["health"] == "error"]
+    warning_sources = [item for item in source_items if item["health"] == "warning"]
+    polling_recent = False
+    if latest_run and latest_run.started_at:
+        polling_recent = (now - latest_run.started_at).total_seconds() <= stale_after_seconds
+
+    if not enabled_sources:
+        service_status = "not_configured"
+        status_label = "Nessuna sorgente abilitata"
+    elif latest_run and latest_run.status == "running":
+        service_status = "running"
+        status_label = "In esecuzione"
+    elif failed_sources:
+        service_status = "error"
+        status_label = "Errori da verificare"
+    elif warning_sources or not polling_recent:
+        service_status = "warning"
+        status_label = "Da monitorare"
+    else:
+        service_status = "active"
+        status_label = "Operativo"
+
+    return {
+        "name": "Mailbox / Graph ingestion",
+        "status": service_status,
+        "status_label": status_label,
+        "expected_interval_seconds": expected_interval_seconds,
+        "stale_after_seconds": stale_after_seconds,
+        "polling_observed": polling_recent,
+        "polling_command": "python manage.py ingest_security_mailbox --loop --interval 120",
+        "can_manage": can_manage_security_config(user),
+        "totals": {
+            "sources": len(sources),
+            "enabled_sources": len(enabled_sources),
+            "graph_sources": len([source for source in sources if source.source_type == "graph"]),
+            "sources_with_errors": len(failed_sources),
+            "sources_with_warnings": len(warning_sources),
+            "recent_runs": len(recent_runs),
+        },
+        "latest_run": _build_service_run_status(latest_run) if latest_run else None,
+        "sources": source_items,
+        "recent_runs": [_build_service_run_status(run) for run in recent_runs],
+    }
+
+
+def _build_service_source_status(source, now, stale_after_seconds):
+    latest_run = source.ingestion_runs.order_by("-started_at").first()
+    seconds_since_run = None
+    if latest_run and latest_run.started_at:
+        seconds_since_run = int((now - latest_run.started_at).total_seconds())
+
+    if not source.enabled:
+        health = "disabled"
+        health_label = "Disabilitata"
+    elif source.last_error_message or (latest_run and latest_run.status == "failed"):
+        health = "error"
+        health_label = "Errore"
+    elif not latest_run:
+        health = "warning"
+        health_label = "Mai eseguita"
+    elif seconds_since_run is not None and seconds_since_run > stale_after_seconds:
+        health = "warning"
+        health_label = "Non recente"
+    elif latest_run.status in ["partial", "pending", "running"]:
+        health = "warning"
+        health_label = latest_run.get_status_display()
+    else:
+        health = "active"
+        health_label = "Operativa"
+
+    return {
+        "code": source.code,
+        "name": source.name,
+        "enabled": source.enabled,
+        "source_type": source.source_type,
+        "source_type_label": source.get_source_type_display(),
+        "category": _detect_category(source),
+        "mailbox_address": _mask_email(source.mailbox_address) if source.mailbox_address else None,
+        "health": health,
+        "health_label": health_label,
+        "last_run_at": source.last_run_at.isoformat() if source.last_run_at else None,
+        "last_success_at": source.last_success_at.isoformat() if source.last_success_at else None,
+        "last_error_at": source.last_error_at.isoformat() if source.last_error_at else None,
+        "last_error_message": _truncate_safe(source.last_error_message, 200),
+        "seconds_since_run": seconds_since_run,
+        "latest_run": _build_service_run_status(latest_run) if latest_run else None,
+    }
+
+
+def _build_service_run_status(run):
+    if not run:
+        return None
+    return {
+        "id": run.id,
+        "source_code": run.source.code,
+        "source_name": run.source.name,
+        "status": run.status,
+        "status_label": run.get_status_display(),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "imported": run.imported_messages_count,
+        "skipped": run.skipped_messages_count,
+        "duplicates": run.duplicate_messages_count,
+        "files": run.imported_files_count,
+        "processed": run.processed_items_count,
+        "alerts": run.generated_alerts_count,
+        "error_message": _truncate_safe(run.error_message, 200),
+    }
+
+
 def _build_graph_settings_response(user=None):
     tenant_setting = SecurityCenterSetting.objects.filter(key="GRAPH_TENANT_ID").first()
     client_setting = SecurityCenterSetting.objects.filter(key="GRAPH_CLIENT_ID").first()
@@ -869,6 +989,53 @@ class ConfigurationSourceIngestApiView(APIView):
             return Response({"error": "source disabled"}, status=http_status.HTTP_400_BAD_REQUEST)
 
         return Response(_build_run_response(run), status=http_status.HTTP_200_OK)
+
+
+class MailboxIngestionServiceStatusApiView(APIView):
+    permission_classes = [CanViewSecurityCenter]
+
+    def get(self, request):
+        return Response(_build_mailbox_ingestion_service_status(request.user))
+
+
+class MailboxIngestionServiceRunApiView(APIView):
+    permission_classes = [CanViewSecurityCenter]
+
+    def post(self, request):
+        data = request.data or {}
+        source_code = str(data.get("source_code", "") or "").strip()
+        limit = data.get("limit")
+        if limit is not None:
+            if not isinstance(limit, int) or limit < 1 or limit > 500:
+                return Response({"error": "limit must be between 1 and 500"}, status=http_status.HTTP_400_BAD_REQUEST)
+
+        if source_code:
+            try:
+                sources = [SecurityMailboxSource.objects.get(code=source_code)]
+            except SecurityMailboxSource.DoesNotExist:
+                return Response({"error": "source not found"}, status=http_status.HTTP_404_NOT_FOUND)
+        else:
+            sources = list(SecurityMailboxSource.objects.filter(enabled=True).order_by("name"))
+
+        if not sources:
+            return Response({"error": "no enabled sources found"}, status=http_status.HTTP_400_BAD_REQUEST)
+
+        results = []
+        for source in sources:
+            if not source.enabled:
+                results.append({"source_code": source.code, "status": "skipped", "error": "source disabled"})
+                continue
+            run = run_mailbox_ingestion(source, limit=limit, dry_run=False, process_pipeline=True, force_reprocess=False)
+            if run:
+                results.append(_build_run_response(run))
+
+        return Response(
+            {
+                "runs": results,
+                "service": _build_mailbox_ingestion_service_status(request.user),
+            },
+            status=http_status.HTTP_200_OK,
+        )
 
 
 class GraphSettingsApiView(APIView):

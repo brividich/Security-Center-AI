@@ -2,7 +2,7 @@ import type { AlertRule, NotificationChannel, ReportSource, SuppressionRule } fr
 import type { IconName, PageKey, Severity, Tone } from "./securityCenter";
 
 export type SecurityModuleKey = "watchguard" | "microsoft-defender" | "backup-nas" | "custom";
-export type ModuleWorkspaceTab = "overview" | "sources" | "reports" | "kpi" | "alerts" | "rules" | "diagnostics";
+export type ModuleWorkspaceTab = "overview" | "sources" | "reports" | "kpi" | "alerts" | "rules" | "service" | "diagnostics";
 export type ModuleHealthStatus = "attivo" | "attenzione" | "errore" | "non_configurato";
 export type ModuleDataSource = "api";
 

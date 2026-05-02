@@ -43,6 +43,7 @@ export function DesktopNav({ navItems, active, onNavigate }: DesktopNavProps) {
         <div className="font-bold text-slate-200">Percorso operativo</div>
         <div className="mt-2 grid gap-1">
           <QuickButton label="Configura" page="configuration" onNavigate={onNavigate} />
+          <QuickButton label="Servizi" page="services" onNavigate={onNavigate} />
           <QuickButton label="Monitora ingressi" page="inbox" onNavigate={onNavigate} />
           <QuickButton label="Leggi report" page="reports" onNavigate={onNavigate} />
         </div>

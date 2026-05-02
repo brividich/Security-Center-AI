@@ -1,0 +1,22 @@
+{
+  "search.exclude": {
+    "**/security_raw_inbox": true,
+    "**/reports": true,
+    "**/uploads": true,
+    "**/attachments": true,
+    "**/mailbox": true,
+    "**/inbox": true,
+    "**/logs": true,
+    "**/media": true
+  },
+  "files.watcherExclude": {
+    "**/security_raw_inbox/**": true,
+    "**/reports/**": true,
+    "**/uploads/**": true,
+    "**/attachments/**": true,
+    "**/mailbox/**": true,
+    "**/inbox/**": true,
+    "**/logs/**": true,
+    "**/media/**": true
+  }
+}

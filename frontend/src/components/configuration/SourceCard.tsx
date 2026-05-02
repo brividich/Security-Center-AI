@@ -33,7 +33,7 @@ export function SourceCard({ source, onEdit, onToggle }: SourceCardProps) {
   const syncError = latestRun?.errorMessage || source.lastErrorMessage;
 
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-3 flex items-start justify-between">
         <div className="flex-1">
           <h3 className="text-base font-semibold text-slate-900">{source.name}</h3>
@@ -105,29 +105,33 @@ export function SourceCard({ source, onEdit, onToggle }: SourceCardProps) {
 
       <div className="flex flex-wrap gap-2">
         <button
-          className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => onEdit?.(source)}
           disabled={!onEdit}
         >
+          <Icon name="settings" className="h-4 w-4" />
           Configura
         </button>
         <button
-          className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => onToggle?.(source)}
           disabled={!onToggle}
         >
+          <Icon name={source.status === "disabled" ? "check" : "silence"} className="h-4 w-4" />
           {source.status === "disabled" ? "Abilita" : "Disabilita"}
         </button>
         <a
-          className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200"
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-200"
           href="/inbox"
         >
+          <Icon name="archive" className="h-4 w-4" />
           Vedi esecuzioni
         </a>
         <a
-          className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200"
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-200"
           href="/reports"
         >
+          <Icon name="file" className="h-4 w-4" />
           Report importati
         </a>
       </div>

@@ -8,7 +8,7 @@ Security Center AI is not a SIEM. A SIEM collects high-volume logs and events in
 
 ## MVP Scope
 
-The current MVP includes WatchGuard report parsers, a Microsoft Defender vulnerability notification parser, Synology Active Backup email parsing, DB-backed source/parser/rule configuration, Evidence Containers, remediation ticketing, alert lifecycle actions, suppression and muting, backup monitoring expectations, an admin configuration panel at `/security/admin/config/`, and diagnostics at `/security/admin/diagnostics/`.
+The current MVP includes WatchGuard report parsers, a Microsoft Defender vulnerability notification parser, Synology Active Backup email parsing, DB-backed source/parser/rule configuration, Evidence Containers, remediation ticketing, alert lifecycle actions, suppression and muting, backup monitoring expectations, a React Configuration Studio at `/configuration`, an admin configuration panel at `/security/admin/config/`, and diagnostics at `/security/admin/diagnostics/`.
 
 ## Not Included Yet
 
@@ -18,7 +18,7 @@ The portal does not yet provide full SIEM ingestion, raw log search, endpoint re
 
 1. Sign in with a staff user or a user with the `manage_security_configuration` permission.
 2. Run `python manage.py seed_security_center_config` to create default sources, parsers, rules, and notification placeholders.
-3. Open `/security/admin/config/` and review Sources, Parsers, Alert Rules, Suppressions, Backup Monitoring, Notifications, Ticketing, and Audit Log.
+3. Open `/configuration` for the React Control Center or `/security/admin/config/` for the Django admin configuration pages, then review Sources, Parsers, Alert Rules, Suppressions, Backup Monitoring, Notifications, Ticketing, and Audit Log.
 4. Confirm only trusted sources and parsers are enabled.
 5. Configure backup expected jobs for protected devices and NAS workloads.
 6. Configure notification channels using secret references, not raw webhook or password values in docs or logs.
@@ -27,6 +27,8 @@ The portal does not yet provide full SIEM ingestion, raw log search, endpoint re
 9. Run the parser, rule, and KPI pipeline from `/security/pipeline/`.
 10. Review alerts, Evidence Containers, and tickets.
 
+For Windows test packaging and installer hygiene, see `DEPLOYMENT_ARTIFACT_POLICY.md`, `WINDOWS_TEST_PACKAGE.md`, `WINDOWS_INSTALLER_EXE.md`, and `WINDOWS_SERVICE_DEPLOYMENT.md`.
+
 ## First 30 Minutes
 
 Start with the dashboard and critical alerts. Confirm that recently ingested reports show a parser name and parse status. Open any critical Defender CVE ticket and verify the CVE, CVSS score, affected product, exposed device count, evidence, and recurrence count. Review WatchGuard metrics for authentication denials, blocked threats, SD-WAN health, Zero-Day APT, EPDR, and ThreatSync incidents. Check Backup Health for failed, missing, long-running, or abnormal-size jobs. Finish by opening diagnostics and the audit log to confirm configuration is healthy and changes are traceable.
@@ -34,4 +36,3 @@ Start with the dashboard and critical alerts. Confirm that recently ingested rep
 ## Core Workflow
 
 Report/email/upload -> Ingestion -> Parser Engine -> Metrics/Findings -> Rule Engine -> Alert/Suppression -> Evidence Container -> Ticket -> Dashboard/Admin.
-

@@ -3,6 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from security.models import (
     SecurityAlert,
@@ -106,6 +107,52 @@ class ConfigurationApiTestCase(TestCase):
         if mailbox:
             self.assertIn("***", mailbox)
             self.assertNotEqual(mailbox, "test@example.local")
+
+    def test_mailbox_ingestion_service_status_returns_safe_summary(self):
+        SecurityMailboxIngestionRun.objects.create(
+            source=self.mailbox_source,
+            status="success",
+            imported_messages_count=2,
+            processed_items_count=2,
+        )
+
+        response = self.client.get(reverse("security:api_mailbox_ingestion_service_status"))
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["name"], "Mailbox / Graph ingestion")
+        self.assertIn(data["status"], ["active", "warning", "error", "running", "not_configured"])
+        self.assertEqual(data["expected_interval_seconds"], 120)
+        self.assertIn("--loop --interval 120", data["polling_command"])
+        self.assertGreaterEqual(data["totals"]["sources"], 1)
+        source_dto = next((item for item in data["sources"] if item["code"] == "test-mailbox"), None)
+        self.assertIsNotNone(source_dto)
+        self.assertIn("***", source_dto["mailbox_address"])
+        self.assertNotIn("test@example.local", str(data))
+
+    def test_mailbox_ingestion_service_run_endpoint_runs_enabled_sources(self):
+        with patch("security.api_configuration.run_mailbox_ingestion") as mock_run:
+            mock_run.return_value = self.mailbox_source.ingestion_runs.create(
+                status="success",
+                imported_messages_count=1,
+                processed_items_count=1,
+            )
+            response = self.client.post(reverse("security:api_mailbox_ingestion_service_run"), {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data["runs"]), 1)
+        self.assertEqual(data["runs"][0]["source_code"], "test-mailbox")
+        mock_run.assert_called_once()
+
+    def test_mailbox_ingestion_service_run_rejects_invalid_limit(self):
+        response = self.client.post(
+            reverse("security:api_mailbox_ingestion_service_run"),
+            {"limit": 0},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
 
     def test_rules_returns_expected_structure(self):
         rule = SecurityAlertRuleConfig.objects.create(

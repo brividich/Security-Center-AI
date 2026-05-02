@@ -25,6 +25,7 @@
         <a class="sec-nav-item {% if request.resolver_match.url_name == 'tickets_list' %}sec-active{% endif %}" href="{% url 'security:tickets_list' %}"><span>T</span>Rimedi</a>
         <a class="sec-nav-item {% if request.resolver_match.url_name == 'kpis' %}sec-active{% endif %}" href="{% url 'security:kpis' %}"><span>K</span>Analisi KPI</a>
         <a class="sec-nav-item {% if request.resolver_match.url_name == 'pipeline' %}sec-active{% endif %}" href="{% url 'security:pipeline' %}"><span>P</span>Pipeline</a>
+        <a class="sec-nav-item {% if request.resolver_match.url_name == 'inbox' or request.resolver_match.url_name == 'upload' or request.resolver_match.url_name == 'reports_upload' %}sec-active{% endif %}" href="{% url 'security:inbox' %}"><span>IN</span>Inbox</a>
         <a class="sec-nav-item {% if request.resolver_match.url_name|slice:':11' == 'admin_addon' %}sec-active{% endif %}" href="{% url 'security:admin_addons' %}"><span>#</span>Moduli</a>
         <a class="sec-nav-item {% if request.resolver_match.url_name|slice:':12' == 'admin_config' %}sec-active{% endif %}" href="{% url 'security:admin_config' %}"><span>*</span>Configurazione</a>
         <a class="sec-nav-item {% if request.resolver_match.url_name == 'admin_diagnostics' %}sec-active{% endif %}" href="{% url 'security:admin_diagnostics' %}"><span>+</span>Diagnostica</a>

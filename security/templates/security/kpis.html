@@ -1,19 +1,19 @@
 {% extends "security/base.html" %}
 
-{% block title %}KPI & Trends | Security Center AI{% endblock %}
-{% block page_icon %}⌁{% endblock %}
-{% block page_marker %}KPI & Trends{% endblock %}
-{% block page_title %}KPI Explorer{% endblock %}
+{% block title %}KPI e trend | Security Center AI{% endblock %}
+{% block page_icon %}K{% endblock %}
+{% block page_marker %}KPI e trend{% endblock %}
+{% block page_title %}Analisi KPI{% endblock %}
 
 {% block content %}
 <section class="sec-panel">
   <div class="sec-section-head">
-    <h2>KPI Snapshots</h2>
+    <h2>Snapshot KPI</h2>
     <form class="sec-filters" method="get">
-      <a class="sec-button" href="{% url 'security:kpis' %}?date={{ previous_date|date:'Y-m-d' }}">‹</a>
-      <label>Date <input type="date" name="date" value="{{ selected_date|date:'Y-m-d' }}"></label>
-      <button class="sec-button-primary" type="submit">Open</button>
-      <a class="sec-button" href="{% url 'security:kpis' %}?date={{ next_date|date:'Y-m-d' }}">›</a>
+      <a class="sec-button" href="{% url 'security:kpis' %}?date={{ previous_date|date:'Y-m-d' }}">&lt;</a>
+      <label>Data <input type="date" name="date" value="{{ selected_date|date:'Y-m-d' }}"></label>
+      <button class="sec-button-primary" type="submit">Apri</button>
+      <a class="sec-button" href="{% url 'security:kpis' %}?date={{ next_date|date:'Y-m-d' }}">&gt;</a>
     </form>
   </div>
   <div class="sec-chart" aria-hidden="true">
@@ -29,22 +29,17 @@
       <div class="sec-section-head"><h3>{{ source_name }}</h3><span class="sec-badge">{{ snapshots|length }} metriche</span></div>
       <div class="sec-table-wrap">
         <table class="sec-table">
-          <thead><tr><th>Metric</th><th>Value</th><th>Labels</th><th>Created</th></tr></thead>
+          <thead><tr><th>Metrica</th><th>Valore</th><th>Etichette</th><th>Creato</th></tr></thead>
           <tbody>
           {% for snapshot in snapshots %}
-            <tr>
-              <td>{{ snapshot.name }}</td>
-              <td><strong>{{ snapshot.value }}</strong></td>
-              <td><pre>{{ snapshot.labels }}</pre></td>
-              <td>{{ snapshot.created_at|date:"d M, H:i" }}</td>
-            </tr>
+            <tr><td>{{ snapshot.name }}</td><td><strong>{{ snapshot.value }}</strong></td><td><pre>{{ snapshot.labels }}</pre></td><td>{{ snapshot.created_at|date:"d M, H:i" }}</td></tr>
           {% endfor %}
           </tbody>
         </table>
       </div>
     </div>
   {% empty %}
-    <div class="sec-panel sec-empty">No KPI snapshots for {{ selected_date|date:"Y-m-d" }}.</div>
+    <div class="sec-panel sec-empty">Nessuno snapshot KPI per {{ selected_date|date:"Y-m-d" }}.</div>
   {% endfor %}
 </section>
 {% endblock %}

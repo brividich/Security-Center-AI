@@ -3,6 +3,11 @@ from django.contrib import admin
 from . import models
 
 
+admin.site.site_header = "Amministrazione Security Center AI"
+admin.site.site_title = "Security Center AI"
+admin.site.index_title = "Pannello amministrazione"
+
+
 @admin.register(models.SecuritySource)
 class SecuritySourceAdmin(admin.ModelAdmin):
     list_display = ("name", "vendor", "source_type", "is_active", "created_at")

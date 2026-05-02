@@ -11,6 +11,7 @@ import { ModulesPage } from "./pages/ModulesPage";
 import { MicrosoftGraphPage } from "./pages/MicrosoftGraphPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ReportsExplorerPage } from "./pages/ReportsExplorerPage";
+import { ServicesPage } from "./pages/ServicesPage";
 import type { ModuleWorkspaceTab } from "./types/modules";
 import { pageKeyForPath, pathForPageKey } from "./utils/moduleAggregation";
 
@@ -24,6 +25,7 @@ function pageFromLocation(): PageKey {
     "/inbox": "inbox",
     "/assets": "assets",
     "/reports": "reports",
+    "/services": "services",
     "/evidence": "evidence",
     "/rules": "rules",
     "/configuration": "configuration",
@@ -68,6 +70,8 @@ export default function App() {
         return <Asset360Page />;
       case "reports":
         return <ReportsExplorerPage onNavigate={navigate} />;
+      case "services":
+        return <ServicesPage onNavigate={navigate} />;
       case "configuration":
         return <ConfigurationStudioPage onNavigate={navigate} />;
       case "rules":

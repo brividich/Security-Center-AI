@@ -6,6 +6,7 @@ import { ModuleOverview } from "../components/modules/ModuleOverview";
 import { ModuleRulesTab } from "../components/modules/ModuleRulesTab";
 import { ModuleSourcesTab } from "../components/modules/ModuleSourcesTab";
 import { ModuleWorkspaceLayout } from "../components/modules/ModuleWorkspaceLayout";
+import { MailboxIngestionServicePanel } from "../components/services/MailboxIngestionServicePanel";
 import { fetchModuleWorkspaces } from "../services/moduleWorkspaceApi";
 import type { ModuleKpi, ModuleRun, ModuleWorkspaceData, ModuleWorkspaceTab } from "../types/modules";
 import type { PageKey, Severity } from "../types/securityCenter";
@@ -24,7 +25,7 @@ const severityClasses: Record<Severity, string> = {
   low: "bg-blue-50 text-blue-700",
 };
 
-const tabs: ModuleWorkspaceTab[] = ["overview", "sources", "reports", "kpi", "alerts", "rules", "diagnostics"];
+const tabs: ModuleWorkspaceTab[] = ["overview", "sources", "reports", "kpi", "alerts", "rules", "service", "diagnostics"];
 
 function tabFromLocation(): ModuleWorkspaceTab {
   const value = new URLSearchParams(window.location.search).get("tab");
@@ -128,6 +129,15 @@ function renderTab(workspace: ModuleWorkspaceData, activeTab: ModuleWorkspaceTab
       return <AlertsTab workspace={workspace} />;
     case "rules":
       return <ModuleRulesTab workspace={workspace} />;
+    case "service":
+      return (
+        <MailboxIngestionServicePanel
+          title={`Servizio ${workspace.definition.shortTitle}`}
+          sourceCodes={workspace.sources.map((source) => source.id)}
+          compact
+          onConfigure={onConfigure}
+        />
+      );
     case "diagnostics":
       return <ModuleDiagnosticsTab workspace={workspace} />;
     case "overview":

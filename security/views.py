@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.db.models import Count
@@ -27,17 +29,25 @@ from .models import (
     SecurityEvidenceContainer,
     SecurityEventRecord,
     SecurityKpiSnapshot,
+    SecurityMailboxMessage,
+    SecurityMailboxSource,
+    SecurityMailboxIngestionRun,
     SecurityNotificationChannel,
     SecurityParserConfig,
     SecurityRemediationTicket,
+    ParseStatus,
     SecurityReport,
+    SecurityReportMetric,
     SecuritySource,
     SecuritySourceConfig,
+    SecuritySourceFile,
     SecurityTicketConfig,
     SecurityVulnerabilityFinding,
     Severity,
+    SourceType,
     Status,
 )
+from .permissions import can_view_security_center
 from .services.alert_lifecycle import (
     ACTIVE_ALERT_STATUSES,
     acknowledge_alert,
@@ -47,7 +57,7 @@ from .services.alert_lifecycle import (
     snooze_alert,
 )
 from .services.kpi_service import build_daily_kpi_snapshots
-from .services.parser_engine import run_pending_parsers
+from .services.parser_engine import _match_enabled_parser, run_pending_parsers
 from .services.rule_engine import evaluate_security_rules, test_alert_rule
 from .services.backup_monitoring import last_seen_backup_status, missing_backup_candidates
 from .services.configuration import (
@@ -58,8 +68,14 @@ from .services.configuration import (
     snapshot_instance,
     source_matches_sample,
 )
+from .services.ingestion import get_or_create_source, ingest_mailbox_message, ingest_source_file
 from .services.addon_registry import get_addon_detail, get_addon_registry
 from .services.diagnostics import build_diagnostics_context
+from .services.security_inbox_pipeline import process_mailbox_message, process_source_file
+
+
+INBOX_ALLOWED_EXTENSIONS = {".pdf", ".csv", ".txt", ".eml", ".log"}
+INBOX_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 def dashboard(request):
@@ -143,7 +159,7 @@ def alert_action(request, pk, action):
         "reopen": lambda: reopen_alert(alert, actor=actor, reason=reason),
     }
     if action not in handlers:
-        messages.error(request, "Unsupported alert action.")
+        messages.error(request, "Azione alert non supportata.")
         return redirect("security:alert_detail", pk=alert.pk)
 
     alert = handlers[action]()
@@ -152,11 +168,12 @@ def alert_action(request, pk, action):
         context.update(
             {
                 "alert": alert,
-                "action_result": f"Alert action recorded: {action}.",
+                "action_result": f"Azione alert registrata: {action}.",
+                "action_result_canonical": f"Alert action recorded: {action}.",
             }
         )
         return render(request, "security/partials/alert_lifecycle_panel.html", context)
-    messages.success(request, f"Alert action recorded: {action}.")
+    messages.success(request, f"Azione alert registrata: {action}.")
     return redirect("security:alert_detail", pk=alert.pk)
 
 
@@ -183,6 +200,20 @@ def kpis_page(request):
 
 def pipeline_page(request):
     return render(request, "security/pipeline.html", {"last_pipeline_run": request.session.get("last_pipeline_run")})
+
+
+def inbox_page(request):
+    if not can_view_security_center(request.user):
+        return _security_center_denied(request)
+
+    result = None
+    if request.method == "POST":
+        result = _handle_inbox_post(request)
+        if request.headers.get("HX-Request"):
+            return render(request, "security/partials/inbox_result.html", {"inbox_result": result})
+
+    context = _inbox_context(result)
+    return render(request, "security/inbox.html", context)
 
 
 def help_page(request):
@@ -261,7 +292,7 @@ def admin_config_general(request):
             obj.updated_by = request.user
             obj.save()
             audit_model_form_changes(request.user, obj, old, snapshot_instance(obj), request=request, secret_fields={"value"} if obj.is_secret else set())
-            messages.success(request, "Setting updated.")
+            messages.success(request, "Impostazione aggiornata.")
             return redirect("security:admin_config_general")
     rows = []
     for setting in settings:
@@ -293,7 +324,7 @@ def admin_config_sources(request):
                 obj.updated_by = request.user
                 obj.save()
                 audit_model_form_changes(request.user, obj, old, snapshot_instance(obj), request=request)
-                messages.success(request, "Source configuration saved.")
+                messages.success(request, "Configurazione sorgente salvata.")
                 return redirect("security:admin_config_sources")
     return render(request, "security/admin_config/sources.html", {"objects": SecuritySourceConfig.objects.order_by("vendor", "name"), "form": form, "test_result": test_result})
 
@@ -314,7 +345,7 @@ def admin_config_alert_rules(request):
             metrics = json.loads(request.POST.get("metrics_json") or "{}")
             test_result = {"rule": rule, "matched": test_alert_rule(rule, metrics), "metrics": metrics}
         except json.JSONDecodeError:
-            test_result = {"error": "Invalid JSON metrics sample."}
+            test_result = {"error": "Campione metriche JSON non valido."}
     elif request.method == "POST":
         return _save_config_form(request, SecurityAlertRuleConfig, SecurityAlertRuleConfigForm, "admin_config_alert_rules")
     return render(request, "security/admin_config/alert_rules.html", {"objects": SecurityAlertRuleConfig.objects.order_by("source_type", "code"), "form": SecurityAlertRuleConfigForm(), "test_result": test_result})
@@ -344,7 +375,7 @@ def admin_config_notifications(request):
             obj.updated_by = request.user
             obj.save()
             audit_model_form_changes(request.user, obj, old, snapshot_instance(obj), request=request, secret_fields={"webhook_url_secret_ref"})
-            messages.success(request, "Notification channel saved.")
+            messages.success(request, "Canale notifica salvato.")
             return redirect("security:admin_config_notifications")
     return render(request, "security/admin_config/notifications.html", {"objects": SecurityNotificationChannel.objects.order_by("channel_type", "name"), "form": SecurityNotificationChannelForm()})
 
@@ -389,7 +420,7 @@ def admin_addon_detail(request, code):
         return _security_config_denied(request)
     addon = get_addon_detail(code)
     if addon is None:
-        raise Http404("Unknown addon.")
+        raise Http404("Modulo sconosciuto.")
     return render(request, "security/admin_addon_detail.html", {"addon": addon})
 
 
@@ -417,16 +448,22 @@ def _save_config_form(request, model, form_class, redirect_name):
         audit_model_form_changes(request.user, obj, old, snapshot_instance(obj), request=request)
         if not old:
             audit_config_change(request.user, "create", obj, request=request)
-        messages.success(request, "Configuration saved.")
+        messages.success(request, "Configurazione salvata.")
     else:
-        messages.error(request, "Configuration was not saved. Check required fields and JSON values.")
+        messages.error(request, "Configurazione non salvata. Controlla campi richiesti e valori JSON.")
     return redirect(f"security:{redirect_name}")
 
 
 def _security_config_denied(request):
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path(), login_url="/admin/login/")
-    return HttpResponseForbidden("Security configuration access requires staff or explicit permission.")
+    return HttpResponseForbidden("L'accesso alla configurazione sicurezza richiede staff o permesso esplicito.")
+
+
+def _security_center_denied(request):
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path(), login_url="/admin/login/")
+    return HttpResponseForbidden("L'accesso a Security Center richiede staff o permesso di visualizzazione.")
 
 
 def _config_card(title, url_name, enabled_count, warning_count, latest):
@@ -435,14 +472,27 @@ def _config_card(title, url_name, enabled_count, warning_count, latest):
         status = "warning"
     if enabled_count == 0 and title not in {"Audit Log"}:
         status = "disabled"
+    title_labels = {
+        "General": "Generale",
+        "Sources": "Sorgenti",
+        "Parsers": "Parser",
+        "Alert Rules": "Regole alert",
+        "Suppression Rules": "Soppressioni",
+        "Backup Monitoring": "Backup",
+        "Notifications": "Notifiche",
+        "Ticketing": "Ticketing",
+        "Audit Log": "Registro audit",
+    }
+    status_labels = {"ok": "OK", "warning": "Attenzione", "disabled": "Disattivato"}
     return {
-        "title": title,
+        "title": title_labels.get(title, title),
         "url_name": url_name,
         "url": reverse(f"security:{url_name}"),
         "enabled_count": enabled_count,
         "warning_count": warning_count,
         "last_updated": getattr(latest, "updated_at", None) or getattr(latest, "created_at", None),
         "status": status,
+        "status_label": status_labels.get(status, status),
     }
 
 
@@ -483,6 +533,192 @@ def _latest_pipeline_reports():
             }
         )
     return reports
+
+
+def _inbox_context(result=None):
+    return {
+        "inbox_result": result,
+        "recent_reports": SecurityReport.objects.select_related("source").order_by("-created_at")[:10],
+        "recent_mailbox_messages": SecurityMailboxMessage.objects.select_related("source").order_by("-received_at")[:10],
+        "recent_source_files": SecuritySourceFile.objects.select_related("source").order_by("-uploaded_at")[:10],
+        "source_configs": SecuritySourceConfig.objects.order_by("-enabled", "vendor", "name")[:30],
+        "parser_configs": SecurityParserConfig.objects.order_by("-enabled", "priority", "parser_name")[:30],
+        "allowed_extensions": sorted(INBOX_ALLOWED_EXTENSIONS),
+        "max_upload_mb": INBOX_MAX_UPLOAD_BYTES // (1024 * 1024),
+    }
+
+
+def _handle_inbox_post(request):
+    started_at = timezone.now()
+    result = {
+        "action": "inbox-ingest",
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "finished_at": None,
+        "status": "success",
+        "mode": "paste",
+        "source_detected": "",
+        "parser_used": "",
+        "confidence": "",
+        "report_reference": "",
+        "reports_parsed": 0,
+        "metrics_created": 0,
+        "events_created": 0,
+        "alerts_created": 0,
+        "evidence_created": 0,
+        "tickets_changed": 0,
+        "warnings": [],
+        "errors": [],
+        "preview": "",
+    }
+
+    uploaded = request.FILES.get("report_file")
+    if uploaded:
+        item = _ingest_inbox_file(uploaded, request.POST, result)
+    else:
+        item = _ingest_inbox_paste(request.POST, result)
+
+    if item is None:
+        result["status"] = "error"
+        result["finished_at"] = timezone.now().isoformat(timespec="seconds")
+        return result
+
+    try:
+        if isinstance(item, SecuritySourceFile):
+            pipeline_result = process_source_file(item, dry_run=False)
+        else:
+            pipeline_result = process_mailbox_message(item, dry_run=False)
+
+        result["parser_used"] = pipeline_result.get("parser_name", "")
+        result["confidence"] = "matched" if pipeline_result.get("parser_matched") else "no-parser"
+        result["reports_parsed"] = pipeline_result.get("reports_parsed", 0)
+        result["metrics_created"] = pipeline_result.get("metrics_created", 0)
+        result["events_created"] = pipeline_result.get("events_created", 0)
+        result["alerts_created"] = pipeline_result.get("alerts_created", 0)
+        result["evidence_created"] = pipeline_result.get("evidence_created", 0)
+        result["tickets_changed"] = pipeline_result.get("tickets_changed", 0)
+        result["warnings"].extend(pipeline_result.get("warnings", []))
+        result["errors"].extend(pipeline_result.get("errors", []))
+
+        if pipeline_result.get("status") == "error":
+            result["status"] = "error"
+        elif pipeline_result.get("status") == "skipped":
+            result["status"] = "skipped"
+
+    except Exception as exc:  # pragma: no cover - defensive UI reporting
+        result["status"] = "error"
+        result["errors"].append(str(exc))
+
+    linked_reports = _reports_for_inbox_item(item)
+    if linked_reports:
+        report = linked_reports[0]
+        result["report_reference"] = f"#{report.pk} {report.title}"
+        result["source_detected"] = report.source.name
+    elif not result["source_detected"]:
+        result["source_detected"] = getattr(getattr(item, "source", None), "name", "") or "No source matched"
+
+    result["finished_at"] = timezone.now().isoformat(timespec="seconds")
+    return result
+
+
+def _ingest_inbox_paste(data, result):
+    sender = (data.get("sender") or "").strip()
+    subject = (data.get("subject") or "Manual inbox sample").strip()[:255]
+    body = data.get("body") or ""
+    source_hint = (data.get("source_hint") or "").strip()
+    content_type = (data.get("content_type") or "").strip()
+    if not body.strip() and not subject.strip():
+        result["errors"].append("Paste mode requires a subject or body.")
+        return None
+
+    source, source_config = _resolve_inbox_source(sender=sender, subject=subject, body=body, source_hint=source_hint, fallback_type=SourceType.EMAIL)
+    result["source_detected"] = source_config.name if source_config else "No source matched"
+    result["preview"] = _safe_preview(body or subject)
+    message = ingest_mailbox_message(source, subject, body, sender=sender)
+    message.raw_payload = {
+        "inbox_mode": "paste",
+        "content_type": content_type,
+        "source_hint": source_hint,
+    }
+    message.save(update_fields=["raw_payload"])
+    return message
+
+
+def _ingest_inbox_file(uploaded, data, result):
+    original_name = Path(uploaded.name or "upload").name
+    extension = Path(original_name).suffix.lower()
+    result["mode"] = "file"
+    if extension not in INBOX_ALLOWED_EXTENSIONS:
+        result["errors"].append(f"Unsupported file extension: {extension or '(none)'}.")
+        return None
+    if uploaded.size > INBOX_MAX_UPLOAD_BYTES:
+        result["errors"].append("Uploaded file is too large. Maximum size is 10 MB.")
+        return None
+
+    raw = uploaded.read()
+    content = raw.decode("utf-8", errors="replace")
+    source_hint = (data.get("source_hint") or "").strip()
+    source, source_config = _resolve_inbox_source(subject=original_name, body=content, source_hint=source_hint, fallback_type=_source_type_for_extension(extension))
+    result["source_detected"] = source_config.name if source_config else "No source matched"
+    result["preview"] = _safe_preview(content)
+    source_file = ingest_source_file(source, original_name, content, file_type=_source_type_for_extension(extension))
+    source_file.raw_payload = {
+        "inbox_mode": "file",
+        "extension": extension,
+        "size": uploaded.size,
+        "source_hint": source_hint,
+    }
+    source_file.save(update_fields=["raw_payload"])
+    return source_file
+
+
+def _resolve_inbox_source(sender="", subject="", body="", source_hint="", fallback_type=SourceType.MANUAL):
+    source_config = _source_config_from_hint(source_hint) or _matching_source_config(sender, subject, body)
+    if source_config:
+        return get_or_create_source(source_config.name, source_config.vendor, fallback_type), source_config
+    return get_or_create_source("Manual Inbox", "", fallback_type), None
+
+
+def _source_config_from_hint(source_hint):
+    if not source_hint:
+        return None
+    configs = SecuritySourceConfig.objects.filter(enabled=True)
+    if source_hint.isdigit():
+        match = configs.filter(pk=int(source_hint)).first()
+        if match:
+            return match
+    hint = source_hint.lower()
+    for config in configs:
+        values = [config.name, config.source_type, config.vendor, config.parser_name]
+        if any(hint in (value or "").lower() for value in values):
+            return config
+    return None
+
+
+def _matching_source_config(sender, subject, body):
+    for config in SecuritySourceConfig.objects.filter(enabled=True).order_by("name"):
+        if source_matches_sample(config, sender=sender, subject=subject, body=body):
+            return config
+    return None
+
+
+def _source_type_for_extension(extension):
+    if extension == ".csv":
+        return SourceType.CSV
+    if extension == ".pdf":
+        return SourceType.PDF
+    return SourceType.MANUAL
+
+
+def _safe_preview(value):
+    preview = " ".join(str(value or "").split())
+    return preview[:500]
+
+
+def _reports_for_inbox_item(item):
+    reports = SecurityReport.objects.select_related("source").order_by("-created_at")
+    if isinstance(item, SecuritySourceFile):
+        return list(reports.filter(source_file=item)[:5])
+    return list(reports.filter(mailbox_message=item)[:5])
 
 
 def _decorate_alerts(alerts):
@@ -557,16 +793,53 @@ def _parse_snooze_until(value):
 
 
 SECURITY_CENTER_DOCS = [
-    {"file": "00_START_HERE.md", "title": "Start Here", "summary": "MVP scope, first setup checklist, and first 30 minutes."},
-    {"file": "01_ARCHITECTURE.md", "title": "Architecture", "summary": "Core engine, parser engine, rule engine, evidence, KPIs, admin config, diagnostics, and addons."},
-    {"file": "02_ADMIN_GUIDE.md", "title": "Admin Guide", "summary": "Sources, parsers, alert rules, suppressions, backups, notifications, ticketing, and audit log."},
-    {"file": "03_ADDONS.md", "title": "Addons", "summary": "Core versus addon model and target addon architecture."},
-    {"file": "04_WATCHGUARD_ADDON.md", "title": "WatchGuard Addon", "summary": "Supported WatchGuard inputs, metrics, rules, noise reduction, and limitations."},
-    {"file": "05_DEFENDER_ADDON.md", "title": "Microsoft Defender Addon", "summary": "Vulnerability emails, CVE evidence, ticket deduplication, and recurrence."},
-    {"file": "06_BACKUP_ADDON.md", "title": "Backup/NAS Addon", "summary": "Synology Active Backup source, expected jobs, missing backup logic, and Backup Health."},
-    {"file": "07_ALERT_LIFECYCLE.md", "title": "Alert Lifecycle", "summary": "Alert states and differences between acknowledge, snooze, mute, suppress, resolve, false positive, and close."},
-    {"file": "08_CONFIGURATION_GUIDE.md", "title": "Configuration Guide", "summary": "Seed config and DB-backed settings for sources, parsers, rules, suppressions, backups, notifications, and ticketing."},
-    {"file": "09_TROUBLESHOOTING.md", "title": "Troubleshooting", "summary": "Common parser, source, alert, ticket, backup, notification, seed, and permission issues."},
-    {"file": "10_DEVELOPER_GUIDE.md", "title": "Developer Guide", "summary": "Parser purity, output structure, warnings, tests, seed config, alert rules, and dashboard visibility."},
-    {"file": "11_OPERATIONS_RUNBOOK.md", "title": "Operations Runbook", "summary": "Daily, weekly, and monthly operating checklist."},
+    {"file": "00_START_HERE.md", "title": "Da qui", "summary": "Ambito MVP, checklist primo setup e primi 30 minuti."},
+    {"file": "01_ARCHITECTURE.md", "title": "Architettura", "summary": "Motore core, parser, regole, evidenze, KPI, configurazione admin, diagnostica e moduli."},
+    {"file": "02_ADMIN_GUIDE.md", "title": "Guida admin", "summary": "Sorgenti, parser, regole alert, soppressioni, backup, notifiche, ticketing e registro audit."},
+    {"file": "03_ADDONS.md", "title": "Moduli", "summary": "Modello core rispetto ai moduli e architettura target dei moduli."},
+    {"file": "04_WATCHGUARD_ADDON.md", "title": "Modulo WatchGuard", "summary": "Input WatchGuard supportati, metriche, regole, riduzione rumore e limiti."},
+    {"file": "05_DEFENDER_ADDON.md", "title": "Modulo Microsoft Defender", "summary": "Email vulnerabilita, evidenze CVE, deduplica ticket e ricorrenze."},
+    {"file": "06_BACKUP_ADDON.md", "title": "Modulo Backup/NAS", "summary": "Sorgente Synology Active Backup, job attesi, logica backup mancanti e salute backup."},
+    {"file": "07_ALERT_LIFECYCLE.md", "title": "Ciclo vita alert", "summary": "Stati alert e differenze tra presa in carico, posticipo, silenziamento, soppressione, risoluzione, falso positivo e chiusura."},
+    {"file": "08_CONFIGURATION_GUIDE.md", "title": "Guida configurazione", "summary": "Configurazione seed e impostazioni DB per sorgenti, parser, regole, soppressioni, backup, notifiche e ticketing."},
+    {"file": "09_TROUBLESHOOTING.md", "title": "Risoluzione problemi", "summary": "Problemi comuni su parser, sorgenti, alert, ticket, backup, notifiche, seed e permessi."},
+    {"file": "10_DEVELOPER_GUIDE.md", "title": "Guida sviluppo", "summary": "Purezza parser, struttura output, avvisi, test, configurazione seed, regole alert e visibilita dashboard."},
+    {"file": "11_OPERATIONS_RUNBOOK.md", "title": "Runbook operativo", "summary": "Checklist operative giornaliere, settimanali e mensili."},
+    {"file": "MAILBOX_INGESTION.md", "title": "Mailbox Ingestion", "summary": "Ingestion schedulata da mailbox, provider, deduplicazione, configurazione e troubleshooting."},
 ]
+
+
+def admin_mailbox_sources_list(request):
+    if not can_view_security_center(request.user):
+        return HttpResponseForbidden("Accesso negato")
+
+    sources = SecurityMailboxSource.objects.all().order_by("-created_at")
+
+    for source in sources:
+        source.latest_run = source.ingestion_runs.order_by("-started_at").first()
+
+    context = {
+        "sources": sources,
+        "page_title": "Sorgenti Mail",
+    }
+    return render(request, "security/admin_mailbox_sources_list.html", context)
+
+
+def admin_mailbox_source_detail(request, code):
+    if not can_view_security_center(request.user):
+        return HttpResponseForbidden("Accesso negato")
+
+    source = get_object_or_404(SecurityMailboxSource, code=code)
+    recent_runs = source.ingestion_runs.order_by("-started_at")[:10]
+    recent_messages = SecurityMailboxMessage.objects.filter(
+        source__name=source.name
+    ).order_by("-received_at")[:20]
+
+    context = {
+        "source": source,
+        "recent_runs": recent_runs,
+        "recent_messages": recent_messages,
+        "page_title": f"Sorgente Mail: {source.name}",
+    }
+    return render(request, "security/admin_mailbox_source_detail.html", context)
+

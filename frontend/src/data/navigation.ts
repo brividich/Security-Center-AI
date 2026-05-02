@@ -4,6 +4,7 @@ export const navItems: NavItem[] = [
   { key: "overview", label: "Cruscotto KPI", icon: "shield", section: "operations", description: "KPI, priorita e salute pipeline" },
   { key: "inbox", label: "Monitor ingressi", icon: "mail", section: "operations", description: "Alert, mailbox, upload e input recenti" },
   { key: "reports", label: "Report importati", icon: "file", section: "operations", description: "Report normalizzati e informazioni estratte" },
+  { key: "services", label: "Servizi", icon: "clock", section: "operations", description: "Polling Graph e stato ingestion" },
   { key: "configuration", label: "Configurazione", icon: "settings", section: "control", description: "Cosa monitorare, regole e notifiche" },
   { key: "microsoft-graph", label: "Microsoft Graph", icon: "mail", section: "control", description: "Mailbox M365 e prerequisiti" },
   { key: "modules", label: "Aree modulo", icon: "grid", section: "control", description: "WatchGuard, Defender, Backup" },
