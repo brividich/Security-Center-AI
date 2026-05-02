@@ -13,6 +13,7 @@ export type PageKey =
   | "assets"
   | "reports"
   | "evidence"
+  | "services"
   | "rules"
   | "configuration";
 export type Tone = "neutral" | "good" | "warning" | "danger" | "info" | "dark";
@@ -105,10 +106,116 @@ export interface ReportItem {
   source: string;
   status: "Processed" | "Pending" | "Failed" | "Suppressed";
   metrics: number;
+  events: number;
   alerts: number;
+  evidence: number;
+  tickets: number;
+  warnings: number;
   receivedAt: string;
   parserName?: string;
+  reportType?: string;
+  reportDate?: string;
+  sourceType?: string;
+  inputKind?: string;
+  linkedReportIds?: number[];
+  dedupStatus?: ReportDedupStatus;
+  timeline?: ReportTimelineItem[];
+  tuningActions?: ReportTuningAction[];
+  metricPreview?: Array<{ name: string; value: number; unit?: string }>;
+  eventSummary?: Array<{ eventType: string; severity: string; total: number }>;
+  alertSummary?: Array<{ status: string; severity: string; total: number }>;
+  alertPreview?: ReportLinkedAlert[];
+  ticketPreview?: ReportLinkedTicket[];
+  evidencePreview?: ReportLinkedEvidence[];
   detail?: string;
+}
+
+export interface ReportDedupStatus {
+  state: "tracked" | "missing" | "unknown";
+  label: string;
+  detail: string;
+  duplicates: number;
+  inputLinked: boolean;
+}
+
+export interface ReportTimelineItem {
+  kind: string;
+  label: string;
+  status: "done" | "attention" | "pending";
+  at?: string | null;
+  detail: string;
+  count: number;
+}
+
+export interface ReportTuningAction {
+  kind: "parser" | "source" | "rules" | string;
+  label: string;
+  target: string;
+  detail: string;
+}
+
+export interface ReportLinkedAlert {
+  id: number;
+  title: string;
+  severity: string;
+  status: string;
+  sourceName: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  detailUrl: string;
+}
+
+export interface ReportLinkedTicket {
+  id: number;
+  title: string;
+  severity: string;
+  status: string;
+  sourceName: string;
+  occurrenceCount: number;
+  updatedAt?: string | null;
+  detailUrl: string;
+}
+
+export interface ReportLinkedEvidence {
+  id: string;
+  title: string;
+  status: string;
+  sourceName: string;
+  itemsCount: number;
+  createdAt?: string | null;
+}
+
+export interface ReportActionResult {
+  itemKind: "mailbox" | "file" | string;
+  id: number;
+  sourceReportId?: number | null;
+  previousStatus: string;
+  parseStatus: string;
+  status: string;
+  processed: boolean;
+  parserDetected: boolean;
+  parserName: string;
+  reportsParsed: number;
+  metrics: number;
+  events: number;
+  alerts: number;
+  evidence: number;
+  tickets: number;
+  warnings: number;
+  errors: number;
+  message: string;
+}
+
+export interface ReportBulkActionResult {
+  total: number;
+  processed: number;
+  success: number;
+  skipped: number;
+  failed: number;
+  reportsParsed: number;
+  events: number;
+  alerts: number;
+  results: ReportActionResult[];
 }
 
 export interface RuleItem {

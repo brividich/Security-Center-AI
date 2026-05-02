@@ -1,4 +1,4 @@
-import type { DayKpi, EvidenceItem, IconName, InboxItem, ModuleStatus, PipelineStep, ReportItem, RuleItem, Severity, TimelineItem } from "../types/securityCenter";
+import type { DayKpi, EvidenceItem, IconName, InboxItem, ModuleStatus, PipelineStep, ReportActionResult, ReportBulkActionResult, ReportItem, RuleItem, Severity, TimelineItem } from "../types/securityCenter";
 import { apiClient } from "./apiClient";
 import { API_BASE_URL } from "./config";
 
@@ -77,26 +77,134 @@ interface InboxRecentResponse {
     id: number;
     title: string;
     source_name: string;
+    source_type?: string;
+    vendor?: string;
+    report_type?: string;
+    report_date?: string | null;
     parser_name: string;
     parse_status: string;
     created_at: string | null;
+    input_kind?: string;
+    metrics_count?: number;
+    events_count?: number;
+    alerts_count?: number;
+    evidence_count?: number;
+    tickets_count?: number;
+    warnings_count?: number;
+    dedup_status?: {
+      state?: string;
+      label?: string;
+      detail?: string;
+      duplicates?: number;
+      input_linked?: boolean;
+    };
+    timeline?: Array<{ kind: string; label: string; status: string; at?: string | null; detail: string; count: number }>;
+    tuning_actions?: Array<{ kind: string; label: string; target: string; detail: string }>;
+    metric_preview?: Array<{ name: string; value: number; unit?: string }>;
+    event_summary?: Array<{ event_type: string; severity: string; total: number }>;
+    alert_summary?: Array<{ status: string; severity: string; total: number }>;
+    alert_preview?: Array<{
+      id: number;
+      title: string;
+      severity: string;
+      status: string;
+      source_name: string;
+      created_at?: string | null;
+      updated_at?: string | null;
+      detail_url: string;
+    }>;
+    ticket_preview?: Array<{
+      id: number;
+      title: string;
+      severity: string;
+      status: string;
+      source_name: string;
+      occurrence_count: number;
+      updated_at?: string | null;
+      detail_url: string;
+    }>;
+    evidence_preview?: Array<{
+      id: string;
+      title: string;
+      status: string;
+      source_name: string;
+      items_count: number;
+      created_at?: string | null;
+    }>;
   }>;
   recent_mailbox_messages: Array<{
     id: number;
     subject: string;
     source_name: string;
+    source_type?: string;
     parse_status: string;
     received_at: string | null;
+    parser_name?: string;
+    linked_report_ids?: number[];
+    reports_count?: number;
+    metrics_count?: number;
+    events_count?: number;
+    alerts_count?: number;
+    evidence_count?: number;
+    tickets_count?: number;
+    warnings_count?: number;
+    errors_count?: number;
+    pipeline_status?: string;
   }>;
   recent_source_files: Array<{
     id: number;
     original_name: string;
     source_name: string;
+    source_type?: string;
     file_type: string;
     parse_status: string;
     uploaded_at: string | null;
+    parser_name?: string;
+    linked_report_ids?: number[];
+    reports_count?: number;
+    metrics_count?: number;
+    events_count?: number;
+    alerts_count?: number;
+    evidence_count?: number;
+    tickets_count?: number;
+    warnings_count?: number;
   }>;
   latest_pipeline_status?: IngestionStatusResponse;
+}
+
+interface InboxRetryResponse {
+  item_kind: string;
+  id: number;
+  source_report_id?: number | null;
+  previous_status: string;
+  parse_status: string;
+  status: string;
+  processed: boolean;
+  parser_detected: boolean;
+  parser_name: string;
+  reports_parsed: number;
+  metrics_count: number;
+  events_count: number;
+  alerts_count: number;
+  evidence_count: number;
+  tickets_count: number;
+  warnings_count: number;
+  errors_count: number;
+  message: string;
+}
+
+interface InboxBulkRetryResponse {
+  summary: {
+    total: number;
+    processed: number;
+    success: number;
+    skipped: number;
+    failed: number;
+    reports_parsed: number;
+    events: number;
+    alerts: number;
+  };
+  results: InboxRetryResponse[];
 }
 
 export interface OverviewData {
@@ -132,11 +240,53 @@ async function loadReports(): Promise<ReportItem[]> {
     name: report.title,
     source: report.source_name,
     status: mapParseStatus(report.parse_status),
-    metrics: report.parser_name ? 1 : 0,
-    alerts: 0,
+    metrics: report.metrics_count ?? 0,
+    events: report.events_count ?? 0,
+    alerts: report.alerts_count ?? 0,
+    evidence: report.evidence_count ?? 0,
+    tickets: report.tickets_count ?? 0,
+    warnings: report.warnings_count ?? 0,
     receivedAt: formatDateTime(report.created_at),
     parserName: report.parser_name || "N/D",
-    detail: "Report normalizzato dal backend.",
+    reportType: report.report_type,
+    reportDate: formatDate(report.report_date),
+    sourceType: report.source_type,
+    inputKind: report.input_kind,
+    dedupStatus: mapDedupStatus(report.dedup_status),
+    timeline: report.timeline?.map(mapTimelineItem),
+    tuningActions: report.tuning_actions?.map((action) => ({ kind: action.kind, label: action.label, target: action.target, detail: action.detail })),
+    metricPreview: report.metric_preview?.map((metric) => ({ name: metric.name, value: metric.value, unit: metric.unit })),
+    eventSummary: report.event_summary?.map((event) => ({ eventType: event.event_type, severity: event.severity, total: event.total })),
+    alertSummary: report.alert_summary?.map((alert) => ({ status: alert.status, severity: alert.severity, total: alert.total })),
+    alertPreview: report.alert_preview?.map((alert) => ({
+      id: alert.id,
+      title: alert.title,
+      severity: alert.severity,
+      status: alert.status,
+      sourceName: alert.source_name,
+      createdAt: alert.created_at,
+      updatedAt: alert.updated_at,
+      detailUrl: alert.detail_url,
+    })),
+    ticketPreview: report.ticket_preview?.map((ticket) => ({
+      id: ticket.id,
+      title: ticket.title,
+      severity: ticket.severity,
+      status: ticket.status,
+      sourceName: ticket.source_name,
+      occurrenceCount: ticket.occurrence_count,
+      updatedAt: ticket.updated_at,
+      detailUrl: ticket.detail_url,
+    })),
+    evidencePreview: report.evidence_preview?.map((evidence) => ({
+      id: evidence.id,
+      title: evidence.title,
+      status: evidence.status,
+      sourceName: evidence.source_name,
+      itemsCount: evidence.items_count,
+      createdAt: evidence.created_at,
+    })),
+    detail: buildReportDetail(report.report_type, report.input_kind),
   }));
   const sourceFiles = response.recent_source_files.map((file) => ({
     id: `file-${file.id}`,
@@ -144,10 +294,18 @@ async function loadReports(): Promise<ReportItem[]> {
     name: file.original_name,
     source: file.source_name,
     status: mapParseStatus(file.parse_status),
-    metrics: file.file_type ? 1 : 0,
-    alerts: 0,
+    metrics: file.metrics_count ?? 0,
+    events: file.events_count ?? 0,
+    alerts: file.alerts_count ?? 0,
+    evidence: file.evidence_count ?? 0,
+    tickets: file.tickets_count ?? 0,
+    warnings: file.warnings_count ?? 0,
     receivedAt: formatDateTime(file.uploaded_at),
-    detail: file.file_type ? `File ${file.file_type}` : "File caricato",
+    parserName: file.parser_name || "N/D",
+    reportType: file.file_type,
+    sourceType: file.source_type,
+    linkedReportIds: file.linked_report_ids ?? [],
+    detail: `${file.reports_count ?? 0} report collegati da file ${file.file_type || "upload"}`,
   }));
   const mailboxMessages = response.recent_mailbox_messages.map((message) => ({
     id: `mail-${message.id}`,
@@ -155,10 +313,17 @@ async function loadReports(): Promise<ReportItem[]> {
     name: message.subject || "Messaggio mailbox",
     source: message.source_name,
     status: mapParseStatus(message.parse_status),
-    metrics: 0,
-    alerts: 0,
+    metrics: message.metrics_count ?? 0,
+    events: message.events_count ?? 0,
+    alerts: message.alerts_count ?? 0,
+    evidence: message.evidence_count ?? 0,
+    tickets: message.tickets_count ?? 0,
+    warnings: (message.warnings_count ?? 0) + (message.errors_count ?? 0),
     receivedAt: formatDateTime(message.received_at),
-    detail: "Messaggio importato da mailbox.",
+    parserName: message.parser_name || "N/D",
+    sourceType: message.source_type,
+    linkedReportIds: message.linked_report_ids ?? [],
+    detail: `${message.reports_count ?? 0} report collegati da mailbox${message.pipeline_status ? ` - pipeline ${message.pipeline_status}` : ""}`,
   }));
   return [...reportsFromParser, ...sourceFiles, ...mailboxMessages].slice(0, 50);
 }
@@ -314,11 +479,99 @@ function mapParseStatus(value: string): ReportItem["status"] {
   return "Pending";
 }
 
+function buildReportDetail(reportType?: string, inputKind?: string) {
+  const type = reportType ? reportType.replace(/_/g, " ") : "report normalizzato";
+  const input = inputKind === "mailbox" ? "mailbox" : inputKind === "file" ? "file" : "input manuale";
+  return `${type} da ${input}`;
+}
+
+function mapDedupStatus(value?: InboxRecentResponse["recent_reports"][number]["dedup_status"]) {
+  if (!value) {
+    return undefined;
+  }
+  const state: "tracked" | "missing" | "unknown" = value.state === "tracked" || value.state === "missing" ? value.state : "unknown";
+  return {
+    state,
+    label: value.label || "Deduplica",
+    detail: value.detail || "",
+    duplicates: value.duplicates ?? 0,
+    inputLinked: Boolean(value.input_linked),
+  };
+}
+
+function mapTimelineItem(item: { kind: string; label: string; status: string; at?: string | null; detail: string; count: number }) {
+  const status: "done" | "attention" | "pending" = item.status === "done" || item.status === "attention" || item.status === "pending" ? item.status : "pending";
+  return {
+    kind: item.kind,
+    label: item.label,
+    status,
+    at: item.at,
+    detail: item.detail,
+    count: item.count,
+  };
+}
+
+function parseReportActionTarget(reportId: string) {
+  const [prefix, rawId] = reportId.split("-", 2);
+  const id = Number(rawId);
+  if (!Number.isInteger(id) || id < 1) {
+    throw new Error("ID report non valido");
+  }
+  if (prefix === "mail") return { kind: "mailbox", id };
+  if (prefix === "file") return { kind: "file", id };
+  if (prefix === "report") return { kind: "report", id };
+  throw new Error("Tipo report non supportato");
+}
+
+function mapRetryResponse(response: InboxRetryResponse): ReportActionResult {
+  return {
+    itemKind: response.item_kind,
+    id: response.id,
+    sourceReportId: response.source_report_id,
+    previousStatus: response.previous_status,
+    parseStatus: response.parse_status,
+    status: response.status,
+    processed: response.processed,
+    parserDetected: response.parser_detected,
+    parserName: response.parser_name,
+    reportsParsed: response.reports_parsed,
+    metrics: response.metrics_count,
+    events: response.events_count,
+    alerts: response.alerts_count,
+    evidence: response.evidence_count,
+    tickets: response.tickets_count,
+    warnings: response.warnings_count,
+    errors: response.errors_count,
+    message: response.message,
+  };
+}
+
+function mapBulkRetryResponse(response: InboxBulkRetryResponse): ReportBulkActionResult {
+  return {
+    total: response.summary.total,
+    processed: response.summary.processed,
+    success: response.summary.success,
+    skipped: response.summary.skipped,
+    failed: response.summary.failed,
+    reportsParsed: response.summary.reports_parsed,
+    events: response.summary.events,
+    alerts: response.summary.alerts,
+    results: response.results.map(mapRetryResponse),
+  };
+}
+
 function formatTime(value: string | null) {
   if (!value) {
     return "--:--";
   }
   return new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
+function formatDate(value?: string | null) {
+  if (!value) {
+    return undefined;
+  }
+  return new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
 }
 
 function formatDateTime(value: string | null) {
@@ -341,6 +594,22 @@ export const securityCenterApi = {
   },
   async getReports() {
     return { data: await loadReports(), source: "api" as const };
+  },
+  async retryReportItem(reportId: string, forceReprocess = false) {
+    const target = parseReportActionTarget(reportId);
+    const response = await apiClient.post<InboxRetryResponse>(
+      `/security/api/inbox/${target.kind}/${target.id}/retry/`,
+      { force_reprocess: forceReprocess },
+    );
+    return { data: mapRetryResponse(response), source: "api" as const };
+  },
+  async retryReportItems(reportIds: string[], forceReprocess = false) {
+    const items = reportIds.map(parseReportActionTarget);
+    const response = await apiClient.post<InboxBulkRetryResponse>(
+      "/security/api/inbox/bulk-retry/",
+      { items, force_reprocess: forceReprocess },
+    );
+    return { data: mapBulkRetryResponse(response), source: "api" as const };
   },
   async getEvidence(): Promise<EvidenceItem[]> {
     return [];

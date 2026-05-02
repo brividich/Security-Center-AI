@@ -1,8 +1,8 @@
 # Configuration Studio API
 
-**Version:** 0.7.1
+**Version:** 0.7.2
 **Status:** Live React Control Center + Source Wizard + Graph settings + report operations
-**Last updated:** 2026-04-30
+**Last updated:** 2026-05-02
 
 ## Overview
 
@@ -13,6 +13,7 @@ The Configuration Studio API provides endpoints for the React Configuration Stud
 - **Patch 21:** React navigation exposes Configuration Studio as a first-level Control Center section.
 - **Patch 22:** Microsoft Graph settings can be saved from the React UI while tenant, client ID, and client secret remain server-side.
 - **Patch 23:** React is the single operator-facing UI for configuration, KPI distribution, incoming data monitoring, and report management. Demo/mock frontend fallback data has been removed.
+- **Patch 24:** Report management exposes safe retry/reprocess operations for failed, pending, or skipped inbox items without returning raw report bodies or parser error text.
 
 ## Base URL
 
@@ -26,6 +27,48 @@ All endpoints require authentication and use the existing `CanViewSecurityCenter
 
 - Unauthenticated requests return `401 Unauthorized`
 - Unauthorized requests return `403 Forbidden`
+
+Report retry/reprocess actions require configuration management access through `CanManageSecurityCenter`.
+
+## Report Operations
+
+Report operations are exposed under `/security/api/inbox/` for the React report workbench.
+
+### POST /<item_kind>/<id>/retry/
+
+Retries one inbox item. `item_kind` can be `mailbox`, `file`, or `report`. Report retry is allowed only when the report has a linked mailbox message or source file.
+
+```json
+{
+  "force_reprocess": false
+}
+```
+
+The response contains only status and counters. It does not return raw email body, file content, parsed payload details, or parser exception text.
+
+### POST /bulk-retry/
+
+Retries up to 25 inbox items in one request.
+
+```json
+{
+  "items": [
+    { "kind": "mailbox", "id": 1 },
+    { "kind": "file", "id": 2 }
+  ],
+  "force_reprocess": false
+}
+```
+
+The response includes `summary` counters and per-item safe results. Items that are already processed are skipped unless `force_reprocess` is explicitly true.
+
+The report workbench recent API also includes safe linked-object previews for reports:
+
+- `alert_preview`: alert id, title, severity, status, timestamps, and detail URL
+- `ticket_preview`: remediation ticket id, title, severity, status, occurrence count, and list URL
+- `evidence_preview`: evidence container id, title, status, item count, and creation timestamp
+
+These previews intentionally omit event payloads, evidence item content, mailbox body, source file content, and parser exception text.
 
 ## Endpoints
 
