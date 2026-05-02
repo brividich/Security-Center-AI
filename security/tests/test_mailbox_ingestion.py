@@ -2,10 +2,13 @@
 Tests for mailbox ingestion functionality.
 """
 import json
+from io import StringIO
 from datetime import datetime, timezone as dt_timezone
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 
 from security.models import (
@@ -415,6 +418,57 @@ class LegacyMailboxSourceAdminRoutesTestCase(TestCase):
         detail_response = self.client.get(f"/security/admin/mailbox-sources/{self.source.code}/")
         self.assertEqual(list_response.status_code, 404)
         self.assertEqual(detail_response.status_code, 404)
+
+
+class MailboxIngestionCommandTests(TestCase):
+    def setUp(self):
+        self.source = SecurityMailboxSource.objects.create(
+            name="Command Test Source",
+            code="command-test-source",
+            enabled=True,
+            source_type="mock",
+            mailbox_address="security@example.local",
+        )
+
+    def test_loop_mode_runs_requested_number_of_times(self):
+        out = StringIO()
+        with patch("security.management.commands.ingest_security_mailbox.run_mailbox_ingestion") as mock_run, patch(
+            "security.management.commands.ingest_security_mailbox.time.sleep"
+        ) as mock_sleep:
+            mock_run.return_value = self.source.ingestion_runs.create(status="success")
+            call_command(
+                "ingest_security_mailbox",
+                "--loop",
+                "--interval",
+                "2",
+                "--max-runs",
+                "2",
+                stdout=out,
+            )
+
+        self.assertEqual(mock_run.call_count, 2)
+        mock_sleep.assert_called_once_with(2)
+        output = out.getvalue()
+        self.assertIn("Polling enabled", output)
+        self.assertIn("Polling complete after 2 run(s)", output)
+
+    def test_loop_output_masks_mailbox_address(self):
+        out = StringIO()
+        with patch("security.management.commands.ingest_security_mailbox.run_mailbox_ingestion") as mock_run:
+            mock_run.return_value = self.source.ingestion_runs.create(status="success")
+            call_command("ingest_security_mailbox", "--source", self.source.code, stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("s***y@example.local", output)
+        self.assertNotIn("security@example.local", output)
+
+    def test_max_runs_requires_loop_mode(self):
+        with self.assertRaises(CommandError):
+            call_command("ingest_security_mailbox", "--max-runs", "1")
+
+    def test_loop_interval_must_be_positive(self):
+        with self.assertRaises(CommandError):
+            call_command("ingest_security_mailbox", "--loop", "--interval", "0")
 
 
 class _FakeUrlopenResponse:

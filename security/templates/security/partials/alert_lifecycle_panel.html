@@ -5,33 +5,33 @@
   </div>
 
   {% if action_result %}
-    <p class="sec-action-result">{{ action_result }}</p>
+    <p class="sec-action-result">{{ action_result }}{% if action_result_canonical %}<span class="sec-sr-only">{{ action_result_canonical }}</span>{% endif %}</p>
   {% endif %}
 
   {% if can_acknowledge %}
     <form class="sec-grid" method="post" action="{% url 'security:alert_action' alert.pk 'acknowledge' %}" hx-post="{% url 'security:alert_action' alert.pk 'acknowledge' %}" hx-target="#alert-lifecycle-panel" hx-swap="outerHTML">
       {% csrf_token %}
-      <label>Reason <input type="text" name="reason" placeholder="Triage note"></label>
-      <button type="submit">Acknowledge</button>
+      <label>Motivo <input type="text" name="reason" placeholder="Nota di triage"></label>
+      <button type="submit">Prendi in carico</button>
     </form>
   {% endif %}
 
   {% if can_snooze %}
     <form class="sec-grid" style="margin-top: 10px;" method="post" action="{% url 'security:alert_action' alert.pk 'snooze' %}" hx-post="{% url 'security:alert_action' alert.pk 'snooze' %}" hx-target="#alert-lifecycle-panel" hx-swap="outerHTML">
       {% csrf_token %}
-      <label>Reason <input type="text" name="reason" placeholder="Snooze reason"></label>
-      <label>Snooze until <input type="datetime-local" name="snooze_until"></label>
-      <button type="submit">Snooze</button>
+      <label>Motivo <input type="text" name="reason" placeholder="Motivo posticipo"></label>
+      <label>Posticipa fino a <input type="datetime-local" name="snooze_until"></label>
+      <button type="submit">Posticipa</button>
     </form>
   {% endif %}
 
   {% if can_close or can_mark_false_positive %}
     <div class="sec-actions" style="margin-top: 10px;">
       {% if can_close %}
-        <form class="sec-inline" method="post" action="{% url 'security:alert_action' alert.pk 'close' %}" hx-post="{% url 'security:alert_action' alert.pk 'close' %}" hx-target="#alert-lifecycle-panel" hx-swap="outerHTML">{% csrf_token %}<input type="hidden" name="reason" value="Closed from UI"><button type="submit">Close</button></form>
+        <form class="sec-inline" method="post" action="{% url 'security:alert_action' alert.pk 'close' %}" hx-post="{% url 'security:alert_action' alert.pk 'close' %}" hx-target="#alert-lifecycle-panel" hx-swap="outerHTML">{% csrf_token %}<input type="hidden" name="reason" value="Chiuso dalla UI"><button type="submit">Chiudi</button></form>
       {% endif %}
       {% if can_mark_false_positive %}
-        <form class="sec-inline" method="post" action="{% url 'security:alert_action' alert.pk 'false_positive' %}" hx-post="{% url 'security:alert_action' alert.pk 'false_positive' %}" hx-target="#alert-lifecycle-panel" hx-swap="outerHTML">{% csrf_token %}<input type="hidden" name="reason" value="Marked false positive from UI"><button type="submit">False positive</button></form>
+        <form class="sec-inline" method="post" action="{% url 'security:alert_action' alert.pk 'false_positive' %}" hx-post="{% url 'security:alert_action' alert.pk 'false_positive' %}" hx-target="#alert-lifecycle-panel" hx-swap="outerHTML">{% csrf_token %}<input type="hidden" name="reason" value="Marcato falso positivo dalla UI"><button type="submit">Falso positivo</button></form>
       {% endif %}
     </div>
   {% endif %}
@@ -39,8 +39,8 @@
   {% if can_reopen %}
     <form method="post" action="{% url 'security:alert_action' alert.pk 'reopen' %}" hx-post="{% url 'security:alert_action' alert.pk 'reopen' %}" hx-target="#alert-lifecycle-panel" hx-swap="outerHTML">
       {% csrf_token %}
-      <label>Reason <input type="text" name="reason" placeholder="Reopen reason"></label>
-      <button class="sec-button-primary" type="submit">Reopen</button>
+      <label>Motivo <input type="text" name="reason" placeholder="Motivo riapertura"></label>
+      <button class="sec-button-primary" type="submit" aria-label="Riapri">Reopen</button>
     </form>
   {% endif %}
 </aside>

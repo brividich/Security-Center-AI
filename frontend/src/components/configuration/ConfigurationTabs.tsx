@@ -7,6 +7,7 @@ import { SuppressionCard } from "./SuppressionCard";
 import { ConfigTestPanel } from "./ConfigTestPanel";
 import SourceSetupWizard from "./SourceSetupWizard";
 import { toggleSource } from "../../services/configurationApi";
+import { Icon } from "../common/Icon";
 
 export type ConfigurationTabKey = "sources" | "rules" | "notifications" | "suppressions" | "test";
 
@@ -62,30 +63,34 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
   };
 
   const tabs = [
-    { key: "sources" as const, label: "Sorgenti report", count: sources.length },
-    { key: "rules" as const, label: "Regole alert", count: rules.length },
-    { key: "notifications" as const, label: "Notifiche", count: channels.length },
-    { key: "suppressions" as const, label: "Silenziamenti", count: suppressions.length },
-    { key: "test" as const, label: "Test configurazione", count: null },
+    { key: "sources" as const, label: "Sorgenti report", count: sources.length, icon: "network" as const },
+    { key: "rules" as const, label: "Regole alert", count: rules.length, icon: "settings" as const },
+    { key: "notifications" as const, label: "Notifiche", count: channels.length, icon: "mail" as const },
+    { key: "suppressions" as const, label: "Silenziamenti", count: suppressions.length, icon: "silence" as const },
+    { key: "test" as const, label: "Test configurazione", count: null, icon: "search" as const },
   ];
+  const activeTabMeta = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
 
   return (
-    <div>
-      <div className="mb-6 border-b border-slate-200">
-        <nav className="-mb-px flex gap-6 overflow-x-auto">
+    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 p-3">
+        <nav className="grid gap-2 md:grid-cols-5">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => selectTab(tab.key)}
-              className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm font-medium transition ${
+              className={`flex min-h-12 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm font-bold transition ${
                 activeTab === tab.key
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900"
+                  ? "border-slate-900 bg-slate-950 text-white"
+                  : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white hover:text-slate-900"
               }`}
             >
-              {tab.label}
+              <span className="flex min-w-0 items-center gap-2">
+                <Icon name={tab.icon} className="h-4 w-4 shrink-0" />
+                <span className="truncate">{tab.label}</span>
+              </span>
               {tab.count !== null && (
-                <span className={`ml-2 rounded-full px-2 py-0.5 text-xs ${activeTab === tab.key ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-600"}`}>
+                <span className={`rounded-full px-2 py-0.5 text-xs ${activeTab === tab.key ? "bg-white/15 text-white" : "bg-white text-slate-600"}`}>
                   {tab.count}
                 </span>
               )}
@@ -94,20 +99,48 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
         </nav>
       </div>
 
-      <div>
+      <div className="p-4 lg:p-5">
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+              <Icon name={activeTabMeta.icon} className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-bold text-slate-950">{activeTabMeta.label}</h2>
+              <p className="text-sm text-slate-500">{tabDescription(activeTab)}</p>
+            </div>
+          </div>
+          {activeTab !== "sources" && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            >
+              <Icon name="clock" className="h-4 w-4" />
+              Aggiorna vista
+            </button>
+          )}
+        </div>
+
         {actionError && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{actionError}</div>}
 
         {activeTab === "sources" && (
           <div>
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <p className="text-sm text-slate-600">
-                Sorgenti report configurate e monitorate. Ogni sorgente rappresenta un flusso di dati di sicurezza.
-              </p>
               <button
                 onClick={() => setShowWizard(true)}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800"
               >
+                <Icon name="network" className="h-4 w-4" />
                 + Aggiungi report da seguire
+              </button>
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              >
+                <Icon name="clock" className="h-4 w-4" />
+                Aggiorna vista
               </button>
             </div>
             {sources.length ? (
@@ -117,15 +150,16 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
                 ))}
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6">
                 <h3 className="font-bold text-slate-950">Nessuna sorgente configurata</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
                   Aggiungi una sorgente per dire al backend quali report seguire, quali parser usare e quali condizioni devono generare alert.
                 </p>
                 <button
                   onClick={() => setShowWizard(true)}
-                  className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800"
                 >
+                  <Icon name="network" className="h-4 w-4" />
                   Aggiungi report da seguire
                 </button>
               </div>
@@ -135,18 +169,13 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
 
         {activeTab === "rules" && (
           <div>
-            <div className="mb-4">
-              <p className="text-sm text-slate-600">
-                Regole che determinano quando generare alert, creare evidence container e aprire ticket di remediation.
-              </p>
-            </div>
             <div className="grid gap-4 md:grid-cols-2">
               {rules.length ? (
                 rules.map((rule) => (
                   <RuleCard key={rule.id} rule={rule} />
                 ))
               ) : (
-                <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 md:col-span-2">
+                <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 md:col-span-2">
                   <h3 className="font-bold text-slate-950">Nessuna regola disponibile</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
                     Le regole arrivano dal backend. Se hai appena fatto login, premi Aggiorna dati.
@@ -159,11 +188,6 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
 
         {activeTab === "notifications" && (
           <div>
-            <div className="mb-4">
-              <p className="text-sm text-slate-600">
-                Canali di notifica configurati per la consegna degli alert operativi.
-              </p>
-            </div>
             {channels.length ? (
               <div className="grid gap-4 md:grid-cols-2">
                 {channels.map((channel) => (
@@ -171,7 +195,7 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
                 ))}
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6">
                 <h3 className="font-bold text-slate-950">Nessun canale notifica disponibile</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600">Configura i canali nella console e poi aggiorna questa vista.</p>
               </div>
@@ -181,11 +205,6 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
 
         {activeTab === "suppressions" && (
           <div>
-            <div className="mb-4">
-              <p className="text-sm text-slate-600">
-                Regole di soppressione attive per ridurre il rumore e gestire falsi positivi.
-              </p>
-            </div>
             {suppressions.length ? (
               <div className="grid gap-4 md:grid-cols-2">
                 {suppressions.map((suppression) => (
@@ -193,7 +212,7 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
                 ))}
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6">
                 <h3 className="font-bold text-slate-950">Nessun silenziamento attivo</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600">Qui compariranno snooze, falsi positivi e regole di soppressione attive.</p>
               </div>
@@ -211,6 +230,17 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
           editingSource={editingSource}
         />
       )}
-    </div>
+    </section>
   );
+}
+
+function tabDescription(tab: ConfigurationTabKey) {
+  const descriptions: Record<ConfigurationTabKey, string> = {
+    sources: "Flussi monitorati, parser, importazioni e stato sync.",
+    rules: "Condizioni che decidono alert, evidence container e ticket.",
+    notifications: "Canali operativi per la consegna degli avvisi.",
+    suppressions: "Eccezioni e falsi positivi con scope verificabile.",
+    test: "Verifica parser e impatto delle regole con campioni sanitizzati.",
+  };
+  return descriptions[tab];
 }

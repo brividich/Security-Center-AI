@@ -105,6 +105,7 @@ export function pathForPageKey(page: PageKey, tab?: ModuleWorkspaceTab): string 
     inbox: "/inbox",
     assets: "/assets",
     reports: "/reports",
+    services: "/services",
     evidence: "/evidence",
     rules: "/rules",
     configuration: "/configuration",

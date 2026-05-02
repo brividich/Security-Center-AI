@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python ../manage.py makemigrations security --dry-run)",
+      "Bash(python ../manage.py makemigrations security)",
+      "Bash(python manage.py makemigrations security)",
+      "Bash(python manage.py check)",
+      "Bash(python manage.py test security.tests.test_mailbox_ingestion --verbosity=2)",
+      "Bash(python manage.py makemigrations --check --dry-run)",
+      "Bash(python manage.py ingest_security_mailbox --help)",
+      "Bash(python manage.py ingest_security_mailbox --dry-run)",
+      "Bash(python manage.py migrate security)",
+      "Bash(python scripts/devsafe_sync.py)",
+      "Bash(python scripts/devsafe_sync.py --help)",
+      "Bash(python scripts/sanitize_security_samples.py --help)",
+      "Bash(python -c \"from pathlib import Path; p = Path\\('security_raw_inbox'\\); print\\(f'Exists: {p.exists\\(\\)}'\\); print\\(f'Is dir: {p.is_dir\\(\\)}'\\); print\\(f'Files: {list\\(p.glob\\(\\\\\"*\\\\\"\\)\\) if p.exists\\(\\) else []}'\\)\")",
+      "Bash(mkdir security_raw_inbox)",
+      "Bash(echo \"test\")",
+      "Bash(python manage.py test security.tests.test_mailbox_ingestion_pipeline --verbosity=2)",
+      "Bash(python manage.py test security.tests.test_mailbox_ingestion_pipeline -v 2)",
+      "Bash(npm run *)",
+      "Bash(python manage.py test security.tests.test_mailbox_ingestion -v 2)",
+      "Bash(python manage.py test security.tests --keepdb)",
+      "Bash(python manage.py test security.tests.test_mailbox_ingestion_pipeline --verbosity=1)",
+      "Bash(python manage.py test security.tests.test_api_configuration)",
+      "Bash(python manage.py test security.tests.test_api_configuration_wizard)",
+      "Bash(python manage.py test security.tests.test_api_configuration_wizard -v 2)",
+      "Bash(python *)",
+      "Bash(npm *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(exist *)",
+      "Bash(Select-String -Path \"C:\\\\Users\\\\luca\\\\Desktop\\\\Security Center\\\\security\\\\views.py\" -Pattern \"mailbox\" -SimpleMatch)",
+      "Bash(Select-Object LineNumber, Line)"
+    ]
+  }
+}

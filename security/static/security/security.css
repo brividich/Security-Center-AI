@@ -284,6 +284,17 @@ a:hover { color: #c5e6ff; }
 .sec-title-cell strong { display: block; color: var(--sec-text); }
 .sec-title-cell small { display: block; margin-top: 2px; color: var(--sec-muted); }
 .sec-muted { color: var(--sec-muted); }
+.sec-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .sec-code, code {
   color: #bce5ff;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

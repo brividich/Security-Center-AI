@@ -51,11 +51,18 @@ export function ConfigTestPanel() {
   };
 
   return (
-    <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-      <h2 className="mb-4 text-lg font-semibold text-slate-900">Test configurazione</h2>
-      <p className="mb-6 text-sm text-slate-600">
-        Verifica parser, metriche estratte e alert generati usando il backend Security Center AI.
-      </p>
+    <div className="rounded-lg border border-slate-200 bg-white p-5">
+      <div className="mb-5 flex items-start gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+          <Icon name="search" className="h-5 w-5" />
+        </span>
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Test configurazione</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Verifica parser, metriche estratte e alert generati usando solo campioni sanitizzati.
+          </p>
+        </div>
+      </div>
 
       <div className="space-y-4">
         <div>
@@ -87,7 +94,7 @@ export function ConfigTestPanel() {
         <button
           onClick={handleTest}
           disabled={loading || sampleText.trim().length === 0}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           <Icon name="search" className="h-4 w-4" />
           {loading ? "Test in corso..." : "Esegui test"}

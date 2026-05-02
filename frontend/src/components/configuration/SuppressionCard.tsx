@@ -21,7 +21,7 @@ export function SuppressionCard({ suppression }: SuppressionCardProps) {
   const isExpired = expiryDate && !Number.isNaN(expiryDate.getTime()) && expiryDate < new Date();
 
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-3 flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2">
@@ -53,10 +53,12 @@ export function SuppressionCard({ suppression }: SuppressionCardProps) {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <span className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700">
+        <span className="inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-bold text-blue-700">
+          <Icon name="check" className="h-4 w-4" />
           Attivo in console
         </span>
-        <a className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200" href="/configuration?tab=suppressions">
+        <a className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-200" href="/configuration?tab=suppressions">
+          <Icon name="clock" className="h-4 w-4" />
           Aggiorna vista
         </a>
       </div>

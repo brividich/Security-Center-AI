@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { ConfigurationTabs, type ConfigurationTabKey } from "../components/configuration/ConfigurationTabs";
+import { Icon } from "../components/common/Icon";
 import {
   fetchConfigurationOverview,
   fetchConfigurationSources,
@@ -93,71 +94,119 @@ export function ConfigurationStudioPage({ defaultTab, onNavigate }: { defaultTab
       label: "Sorgenti",
       value: overview.active_sources,
       detail: "Report, mailbox, upload e parser collegati",
+      icon: "network" as const,
+      tone: "border-cyan-200 bg-cyan-50 text-cyan-700",
       tab: "sources" as ConfigurationTabKey,
     },
     {
       label: "Regole",
       value: overview.active_rules,
       detail: "Condizioni che generano alert, evidence e ticket",
+      icon: "settings" as const,
+      tone: "border-indigo-200 bg-indigo-50 text-indigo-700",
       tab: "rules" as ConfigurationTabKey,
     },
     {
       label: "Notifiche",
       value: overview.active_channels,
       detail: "Destinazioni operative per gli avvisi",
+      icon: "mail" as const,
+      tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
       tab: "notifications" as ConfigurationTabKey,
     },
     {
       label: "Silenziamenti",
       value: overview.active_suppressions,
       detail: "Rumore ridotto con scope e audit",
+      icon: "silence" as const,
+      tone: "border-amber-200 bg-amber-50 text-amber-700",
       tab: "suppressions" as ConfigurationTabKey,
     },
   ];
 
   const workflowLinks = [
+    { label: "Servizi", detail: "Controlla polling Graph e importazioni automatiche", page: "services" as PageKey },
     { label: "Monitor ingressi", detail: "Controlla mailbox, upload e alert recenti", page: "inbox" as PageKey },
     { label: "Report importati", detail: "Vedi report normalizzati e informazioni estratte", page: "reports" as PageKey },
     { label: "Microsoft Graph", detail: "Verifica credenziali, mailbox e ultimo sync", page: "microsoft-graph" as PageKey },
-    { label: "Aree modulo", detail: "Guarda copertura per WatchGuard, Defender e Backup", page: "modules" as PageKey },
   ];
 
+  const statusTone = authRequired
+    ? "border-amber-200 bg-amber-50 text-amber-800"
+    : loadError
+      ? "border-red-200 bg-red-50 text-red-700"
+      : "border-emerald-200 bg-emerald-50 text-emerald-700";
+  const statusLabel = authRequired ? "Sessione richiesta" : loadError ? "API backend non disponibile" : "Collegato alle API backend";
+
   return (
-    <div className="space-y-5">
-      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div>
+    <div className="space-y-6">
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="grid gap-0 xl:grid-cols-[1.35fr_0.65fr]">
+          <div className="p-5 lg:p-6">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-xl font-bold text-slate-900">Studio Configurazione</h1>
-              <span className={`rounded-full px-3 py-1 text-xs font-bold ${authRequired ? "bg-amber-50 text-amber-800" : loadError ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
-                {authRequired ? "Sessione richiesta" : loadError ? "API backend non disponibile" : "Collegato alle API backend"}
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-950 text-white">
+                <Icon name="settings" className="h-5 w-5" />
+              </span>
+              <div>
+                <h1 className="text-2xl font-bold text-slate-950">Studio Configurazione</h1>
+                <p className="text-sm font-medium text-slate-500">Control Center per sorgenti, regole, notifiche e silenziamenti</p>
+              </div>
+            </div>
+            <p className="mt-5 max-w-3xl text-sm leading-6 text-slate-600">
+              Gestisci cosa viene monitorato, quali condizioni aprono alert o ticket, dove arrivano le notifiche e quali eccezioni restano sotto controllo operativo.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <span className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold ${statusTone}`}>
+                <Icon name={loadError ? "alert" : "check"} className="h-4 w-4" />
+                {statusLabel}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
+                <Icon name="shield" className="h-4 w-4" />
+                Dati letti dal backend
               </span>
             </div>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Da qui gestisci cosa viene monitorato, quali regole generano alert, dove arrivano le notifiche e cosa viene silenziato. Questo e' il pannello principale di configurazione.
-            </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+
+          <div className="border-t border-slate-200 bg-slate-50 p-5 xl:border-l xl:border-t-0 lg:p-6">
+            <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Azioni rapide</div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
             <button
               type="button"
-              className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white hover:bg-blue-800"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800"
               onClick={loadData}
             >
+                <Icon name="clock" className="h-4 w-4" />
               Aggiorna dati
             </button>
             <button
               type="button"
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100"
               onClick={openGraphPage}
             >
+                <Icon name="network" className="h-4 w-4" />
               Microsoft Graph
             </button>
+            </div>
+            <div className="mt-5 space-y-3 text-xs text-slate-600">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-cyan-500" />
+                Configura ingressi e parser
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-indigo-500" />
+                Verifica regole e test
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Controlla consegna e rumore
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {loading && (
-        <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm font-medium text-slate-600 shadow-sm">
           Caricamento configurazione backend...
         </div>
       )}
@@ -185,16 +234,21 @@ export function ConfigurationStudioPage({ defaultTab, onNavigate }: { defaultTab
         </div>
       )}
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {areas.map((area) => (
           <button
             key={area.label}
             type="button"
             onClick={() => handleTabChange(area.tab)}
-            className="rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+            className={`rounded-lg border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md ${activeConfigTab === area.tab ? "border-slate-400" : "border-slate-200"}`}
           >
-            <div className="text-2xl font-bold text-slate-950">{area.value}</div>
-            <div className="mt-1 font-bold text-slate-800">{area.label}</div>
+            <div className="flex items-start justify-between gap-3">
+              <span className={`flex h-10 w-10 items-center justify-center rounded-lg border ${area.tone}`}>
+                <Icon name={area.icon} className="h-5 w-5" />
+              </span>
+              <span className="text-3xl font-bold text-slate-950">{area.value}</span>
+            </div>
+            <div className="mt-4 font-bold text-slate-800">{area.label}</div>
             <div className="mt-1 text-xs leading-5 text-slate-500">{area.detail}</div>
           </button>
         ))}
@@ -213,9 +267,12 @@ export function ConfigurationStudioPage({ defaultTab, onNavigate }: { defaultTab
               key={item.label}
               type="button"
               onClick={() => onNavigate?.(item.page)}
-              className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-left hover:border-blue-300 hover:bg-blue-50"
+              className="group rounded-lg border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-slate-300 hover:bg-white"
             >
-              <div className="font-bold text-slate-900">{item.label}</div>
+              <div className="flex items-center justify-between gap-2 font-bold text-slate-900">
+                {item.label}
+                <Icon name="chevron" className="h-4 w-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700" />
+              </div>
               <div className="mt-1 text-xs leading-5 text-slate-500">{item.detail}</div>
             </button>
           ))}

@@ -17,6 +17,7 @@ const tabs: Array<{ key: ModuleWorkspaceTab; label: string }> = [
   { key: "kpi", label: "KPI" },
   { key: "alerts", label: "Alert" },
   { key: "rules", label: "Regole" },
+  { key: "service", label: "Servizio" },
   { key: "diagnostics", label: "Diagnostica" },
 ];
 
