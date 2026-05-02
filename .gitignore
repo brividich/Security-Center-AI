@@ -1,15 +1,88 @@
+# Local Claude Code memory/preferences
+CLAUDE.local.md
+
+# Python
 __pycache__/
 *.py[cod]
 *.pyc
-*.sqlite3
-db.sqlite3
+*.pyo
+
+# Local environment and secrets
 .env
+.env.*
+!.env.example
+!.env.test-sqlserver.example
+config.ini
+secrets.json
+credentials.json
+token.json
+*.key
+*.pem
+*.pfx
+*.p12
+*.cer
+*.crt
+
+# Local/generated sensitive data
+*.sqlite3
+*.db
+*.bak
+*.dump
+*.log
+logs/
+media/
+uploads/
+attachments/
+reports/
+mailbox/
+inbox/
+media/uploads/
+
+# Virtual environments
 .venv/
 venv/
 env/
+
+# Django
+db.sqlite3
 staticfiles/
-media/
+
+# Testing
 .pytest_cache/
 .coverage
+.tmp-tests/
+
+# Frontend
+node_modules/
 frontend/node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+*.tsbuildinfo
+
+# Build and deployment outputs
+dist/
+dist/installer/
+dist/installer-*/
+*.zip
+*.exe
+runtime/*.pid
+runtime/*.url
+s -ExecutionPolicy RemoteSigned*
+
+# DEV SAFE quarantine and raw files
+security_raw_inbox/
+samples/security/auto/
+*.raw.txt
+*.raw.csv
+*.raw.log
+*.raw.eml
+*.raw.json
+
+# Optional local third-party tools for Windows packaging
+tools/windows/*.exe
+tools/windows/nssm.exe
+tools/windows/winsw.exe
+tools/windows/winsw.xml
+tools/windows/SecurityCenterAI.xml

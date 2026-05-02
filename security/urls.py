@@ -3,6 +3,8 @@ from django.urls import include, path
 from .api import (
     AddonsSummaryApiView,
     DashboardSummaryApiView,
+    InboxBulkRetryApiView,
+    InboxItemRetryApiView,
     InboxRecentApiView,
     KpiSummaryApiView,
     RecentAlertsApiView,
@@ -23,6 +25,8 @@ from .api_configuration import (
     ConfigurationSourceUpdateApiView,
     ConfigurationSourceToggleApiView,
     ConfigurationSourceIngestApiView,
+    MailboxIngestionServiceStatusApiView,
+    MailboxIngestionServiceRunApiView,
     GraphSettingsApiView,
 )
 from . import views
@@ -37,6 +41,7 @@ urlpatterns = [
     path("security/alerts/<int:pk>/", views.alert_detail, name="alert_detail"),
     path("security/alerts/<int:pk>/actions/<slug:action>/", views.alert_action, name="alert_action"),
     path("security/tickets/", views.tickets_list, name="tickets_list"),
+    path("security/inbox/", views.inbox_page, name="inbox"),
     path("security/kpis/", views.kpis_page, name="kpis"),
     path("security/pipeline/", views.pipeline_page, name="pipeline"),
     path("security/help/", views.help_page, name="help"),
@@ -58,6 +63,8 @@ urlpatterns = [
     path("security/api/dashboard-summary/", DashboardSummaryApiView.as_view(), name="api_dashboard_summary"),
     path("security/api/alerts/recent/", RecentAlertsApiView.as_view(), name="api_alerts_recent"),
     path("security/api/inbox/recent/", InboxRecentApiView.as_view(), name="api_inbox_recent"),
+    path("security/api/inbox/<slug:item_kind>/<int:pk>/retry/", InboxItemRetryApiView.as_view(), name="api_inbox_item_retry"),
+    path("security/api/inbox/bulk-retry/", InboxBulkRetryApiView.as_view(), name="api_inbox_bulk_retry"),
     path("security/api/kpis/summary/", KpiSummaryApiView.as_view(), name="api_kpis_summary"),
     path("security/api/addons/summary/", AddonsSummaryApiView.as_view(), name="api_addons_summary"),
     path("api/security/health/", SecurityHealthApiView.as_view(), name="api_security_health"),
@@ -71,6 +78,8 @@ urlpatterns = [
     path("security/api/configuration/sources/<slug:code>/toggle/", ConfigurationSourceToggleApiView.as_view(), name="api_configuration_source_toggle"),
     path("security/api/configuration/sources/<slug:code>/ingest/", ConfigurationSourceIngestApiView.as_view(), name="api_configuration_source_ingest"),
     path("security/api/configuration/graph/settings/", GraphSettingsApiView.as_view(), name="api_configuration_graph_settings"),
+    path("security/api/services/mailbox-ingestion/status/", MailboxIngestionServiceStatusApiView.as_view(), name="api_mailbox_ingestion_service_status"),
+    path("security/api/services/mailbox-ingestion/run/", MailboxIngestionServiceRunApiView.as_view(), name="api_mailbox_ingestion_service_run"),
     path("security/api/configuration/rules/", ConfigurationRulesApiView.as_view(), name="api_configuration_rules"),
     path("security/api/configuration/notifications/", ConfigurationNotificationsApiView.as_view(), name="api_configuration_notifications"),
     path("security/api/configuration/suppressions/", ConfigurationSuppressionsApiView.as_view(), name="api_configuration_suppressions"),

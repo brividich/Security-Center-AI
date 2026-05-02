@@ -2,11 +2,35 @@
 
 Security Report Intelligence MVP built with Django, SQL Server support, Celery, Redis, Django admin, DRF read APIs, modular parsers, rule evaluation, deduplication, KPI snapshots, evidence containers, and remediation tickets.
 
-Current version: 0.7.1
+Current version: 0.7.2
 
 ## React Control Center
 
 The React app is the single operator-facing UI for configuration, source health, incoming data monitoring, and report management. It renders live backend data only: when APIs are empty or unavailable, the UI shows explicit empty/error states instead of synthetic demo rows.
+
+## Microsoft Graph mailbox ingestion
+
+Microsoft 365 mailbox sources with `source_type=graph` can be imported through the backend ingestion pipeline. Configure Graph credentials from the React Microsoft Graph page or, for server-only deployments, through Django/server environment values:
+
+```env
+GRAPH_TENANT_ID=00000000-0000-0000-0000-000000000000
+GRAPH_CLIENT_ID=00000000-0000-0000-0000-000000000000
+GRAPH_CLIENT_SECRET=token-redacted
+GRAPH_MAIL_FOLDER=Inbox
+```
+
+Use an Entra app registration with application mailbox permissions approved by an administrator. Client secrets saved from the UI are stored as server-side secret settings and are never returned to the browser. Do not put real Graph credentials in React code, docs, tests, screenshots, or fixtures.
+
+## Windows TEST SQL Server Setup
+
+For Windows LAN test deployments, use the guided SQL Server setup instead of manually editing `.env`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\configure_sqlserver_env.ps1 -TestConnection
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup_test_deployment.ps1 -ConfigureSqlServer -CreateDatabase -SeedDemo -InstallService
+```
+
+The wizard preserves manual `.env` support, masks SQL passwords in output, and creates the test database only after an explicit operator request. Standard uninstall removes application files and attempts service cleanup, but intentionally keeps the SQL Server database.
 
 ## Install
 
@@ -50,6 +74,17 @@ Open:
 - React app: http://127.0.0.1:8000/
 - API root: http://127.0.0.1:8000/api/
 
+## React build served by Django
+
+For a local Windows test deployment with one Django endpoint:
+
+```powershell
+.\scripts\windows\build_frontend_for_django.ps1
+python manage.py runserver 0.0.0.0:8000
+```
+
+Open `http://127.0.0.1:8000/` or `http://<PC-IP>:8000/` from the LAN. The backend serves the React production build from `frontend/dist/`; protected backend/admin routes remain support surfaces, not the primary operator UI.
+
 ## Operator UI
 
 The React Control Center is the primary operational workflow:
@@ -57,7 +92,7 @@ The React Control Center is the primary operational workflow:
 - `/` dashboard with KPI distribution, source coverage, incoming data, recent alerts, and report activity.
 - `/configuration` source, rule, notification, suppression, and test configuration.
 - `/inbox` incoming mailbox/upload monitoring and parsing status.
-- `/reports` imported report review, filters, detail, pipeline state, and internal action tracking.
+- `/reports` imported report review, filters, detail, pipeline state, and safe retry/reprocess actions.
 - `/integrations/microsoft-graph` Graph credential status, mailbox folder, and sync actions.
 
 Alert quick actions write `SecurityAlertActionLog` entries. Pipeline actions call the same services used by management commands and APIs.
