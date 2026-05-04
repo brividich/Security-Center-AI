@@ -8,8 +8,11 @@ import { ConfigTestPanel } from "./ConfigTestPanel";
 import SourceSetupWizard from "./SourceSetupWizard";
 import { toggleSource, runSourceIngestion } from "../../services/configurationApi";
 import { Icon } from "../common/Icon";
+import { UsersPage } from "../../pages/UsersPage";
+import { GroupsPage } from "../../pages/GroupsPage";
+import { AIAssistantPage } from "../../pages/AIAssistantPage";
 
-export type ConfigurationTabKey = "sources" | "rules" | "notifications" | "suppressions" | "test";
+export type ConfigurationTabKey = "sources" | "rules" | "notifications" | "suppressions" | "test" | "users" | "groups" | "ai";
 
 interface ConfigurationTabsProps {
   sources: ReportSource[];
@@ -82,6 +85,9 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
     { key: "notifications" as const, label: "Notifiche", count: channels.length, icon: "mail" as const },
     { key: "suppressions" as const, label: "Silenziamenti", count: suppressions.length, icon: "silence" as const },
     { key: "test" as const, label: "Test configurazione", count: null, icon: "search" as const },
+    { key: "users" as const, label: "Utenti", count: null, icon: "shield" as const },
+    { key: "groups" as const, label: "Gruppi", count: null, icon: "grid" as const },
+    { key: "ai" as const, label: "AI Assistant", count: null, icon: "bot" as const },
   ];
   const activeTabMeta = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
 
@@ -242,6 +248,12 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
         )}
 
         {activeTab === "test" && <ConfigTestPanel />}
+
+        {activeTab === "users" && <UsersPage />}
+
+        {activeTab === "groups" && <GroupsPage />}
+
+        {activeTab === "ai" && <AIAssistantPage />}
       </div>
 
       {showWizard && (
@@ -262,6 +274,9 @@ function tabDescription(tab: ConfigurationTabKey) {
     notifications: "Canali operativi per la consegna degli avvisi.",
     suppressions: "Eccezioni e falsi positivi con scope verificabile.",
     test: "Verifica parser e impatto delle regole con campioni sanitizzati.",
+    users: "Gestione utenti, permessi e assegnazione gruppi.",
+    groups: "Gestione gruppi e ruoli per il controllo accessi.",
+    ai: "Assistente AI per analisi report, suggerimenti regole e chat intelligente.",
   };
   return descriptions[tab];
 }

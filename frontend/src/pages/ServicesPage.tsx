@@ -1,6 +1,7 @@
 import type { PageKey } from "../types/securityCenter";
 import { Icon } from "../components/common/Icon";
 import { MailboxIngestionServicePanel } from "../components/services/MailboxIngestionServicePanel";
+import { ServiceConfigAssistant } from "../components/services/ServiceConfigAssistant";
 
 export function ServicesPage({ onNavigate }: { onNavigate?: (page: PageKey) => void }) {
   return (
@@ -39,7 +40,16 @@ export function ServicesPage({ onNavigate }: { onNavigate?: (page: PageKey) => v
         </div>
       </section>
 
-      <MailboxIngestionServicePanel onConfigure={() => onNavigate?.("configuration")} />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <MailboxIngestionServicePanel onConfigure={() => onNavigate?.("configuration")} />
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <Icon name="bot" className="h-5 w-5 text-blue-600" />
+            <h2 className="text-lg font-semibold text-slate-950">Assistente Configurazione</h2>
+          </div>
+          <ServiceConfigAssistant />
+        </div>
+      </div>
     </div>
   );
 }
