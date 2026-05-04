@@ -6,6 +6,14 @@ from .base import *  # noqa: F403
 DEBUG = False
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 
+# Production security settings (override base defaults)
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_HSTS_SECONDS = 31536000  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+
 DATABASES = {
     "default": {
         "ENGINE": "mssql",

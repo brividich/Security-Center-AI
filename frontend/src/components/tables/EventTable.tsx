@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import type { InboxItem, Severity } from "../../types/securityCenter";
 import { severityLabel } from "../../data/uiLabels";
+import { navigateToClientPath } from "../../utils/clientNavigation";
 import { Icon } from "../common/Icon";
 import { SeverityBadge, toneForSeverity } from "../common/SeverityBadge";
 
 interface EventTableProps {
   items: InboxItem[];
   compact?: boolean;
+  onOpenAlert?: (id: string) => void;
 }
 
 function SeverityDot({ severity }: { severity: Severity }) {
@@ -14,7 +16,7 @@ function SeverityDot({ severity }: { severity: Severity }) {
   return <span className={`inline-block h-2.5 w-2.5 rounded-full ${cls}`} />;
 }
 
-export function EventTable({ items, compact = false }: EventTableProps) {
+export function EventTable({ items, compact = false, onOpenAlert }: EventTableProps) {
   const [selected, setSelected] = useState<InboxItem | null>(items[0] ?? null);
 
   useEffect(() => {
@@ -84,7 +86,13 @@ export function EventTable({ items, compact = false }: EventTableProps) {
               </div>
             </dl>
             <div className="mt-5 grid grid-cols-2 gap-2">
-              <button className="rounded-2xl bg-blue-700 px-4 py-2 text-sm font-bold text-white">Apri caso</button>
+              <button
+                type="button"
+                className="rounded-2xl bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800"
+                onClick={() => openAlertDetail(selected.id, onOpenAlert)}
+              >
+                Apri caso
+              </button>
               <button className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700">Snooze</button>
             </div>
           </>
@@ -94,4 +102,12 @@ export function EventTable({ items, compact = false }: EventTableProps) {
       </aside>
     </section>
   );
+}
+
+function openAlertDetail(id: string, onOpenAlert?: (id: string) => void) {
+  if (onOpenAlert) {
+    onOpenAlert(id);
+    return;
+  }
+  navigateToClientPath(`/alerts/${encodeURIComponent(id)}`);
 }

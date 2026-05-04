@@ -1,13 +1,16 @@
 import type { ReportSource } from "../../types/configuration";
+import { navigateToClientPath } from "../../utils/clientNavigation";
 import { Icon } from "../common/Icon";
 
 interface SourceCardProps {
   source: ReportSource;
   onEdit?: (source: ReportSource) => void;
   onToggle?: (source: ReportSource) => void;
+  onSync?: (source: ReportSource) => void;
+  isSyncing?: boolean;
 }
 
-export function SourceCard({ source, onEdit, onToggle }: SourceCardProps) {
+export function SourceCard({ source, onEdit, onToggle, onSync, isSyncing }: SourceCardProps) {
   const statusConfig = {
     active: { label: "Attivo", color: "bg-green-100 text-green-800" },
     to_configure: { label: "Da configurare", color: "bg-yellow-100 text-yellow-800" },
@@ -120,20 +123,31 @@ export function SourceCard({ source, onEdit, onToggle }: SourceCardProps) {
           <Icon name={source.status === "disabled" ? "check" : "silence"} className="h-4 w-4" />
           {source.status === "disabled" ? "Abilita" : "Disabilita"}
         </button>
-        <a
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-100 px-3 py-1.5 text-sm font-bold text-blue-700 hover:bg-blue-200 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => onSync?.(source)}
+          disabled={!onSync || isSyncing}
+        >
+          <Icon name="clock" className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+          {isSyncing ? "Sync in corso..." : "Sync"}
+        </button>
+        <button
+          type="button"
           className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-200"
-          href="/inbox"
+          onClick={() => navigateToClientPath("/inbox")}
         >
           <Icon name="archive" className="h-4 w-4" />
           Vedi esecuzioni
-        </a>
-        <a
+        </button>
+        <button
+          type="button"
           className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-200"
-          href="/reports"
+          onClick={() => navigateToClientPath("/reports")}
         >
           <Icon name="file" className="h-4 w-4" />
           Report importati
-        </a>
+        </button>
       </div>
     </div>
   );

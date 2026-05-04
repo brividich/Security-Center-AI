@@ -1,9 +1,13 @@
 from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status as http_status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils.decorators import method_decorator
+
+
 
 from .models import (
     SecurityAlert,
@@ -229,8 +233,15 @@ class ConfigurationSuppressionsApiView(APIView):
         return Response(result)
 
 
+@method_decorator(ensure_csrf_cookie, name="dispatch")
 class ConfigurationTestApiView(APIView):
     permission_classes = [CanViewSecurityCenter]
+
+    def get(self, request):
+        return Response({
+            "status": "ok",
+            "csrfToken": get_token(request),
+        })
 
     def post(self, request):
         source_type = request.data.get("source_type", "")

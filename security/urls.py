@@ -11,6 +11,7 @@ from .api import (
     SecurityAddonDetailApiView,
     SecurityAddonsApiView,
     SecurityHealthApiView,
+    SecuritySessionApiView,
     router,
 )
 from .api_configuration import (
@@ -68,6 +69,7 @@ urlpatterns = [
     path("security/api/kpis/summary/", KpiSummaryApiView.as_view(), name="api_kpis_summary"),
     path("security/api/addons/summary/", AddonsSummaryApiView.as_view(), name="api_addons_summary"),
     path("api/security/health/", SecurityHealthApiView.as_view(), name="api_security_health"),
+    path("api/security/session/", SecuritySessionApiView.as_view(), name="api_security_session"),
     path("api/security/addons/", SecurityAddonsApiView.as_view(), name="api_addons"),
     path("api/security/addons/<slug:code>/", SecurityAddonDetailApiView.as_view(), name="api_addon_detail"),
     path("security/api/configuration/overview/", ConfigurationOverviewApiView.as_view(), name="api_configuration_overview"),

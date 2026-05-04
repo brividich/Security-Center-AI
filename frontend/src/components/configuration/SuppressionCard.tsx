@@ -1,4 +1,5 @@
 import type { SuppressionRule } from "../../types/configuration";
+import { navigateToClientPath } from "../../utils/clientNavigation";
 import { Icon } from "../common/Icon";
 
 interface SuppressionCardProps {
@@ -57,10 +58,10 @@ export function SuppressionCard({ suppression }: SuppressionCardProps) {
           <Icon name="check" className="h-4 w-4" />
           Attivo in console
         </span>
-        <a className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-200" href="/configuration?tab=suppressions">
+        <button type="button" className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-200" onClick={() => navigateToClientPath("/configuration?tab=suppressions")}>
           <Icon name="clock" className="h-4 w-4" />
           Aggiorna vista
-        </a>
+        </button>
       </div>
     </div>
   );

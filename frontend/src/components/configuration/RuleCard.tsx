@@ -1,5 +1,6 @@
 import type { AlertRule } from "../../types/configuration";
 import { actionLabel } from "../../data/uiLabels";
+import { navigateToClientPath } from "../../utils/clientNavigation";
 import { Icon } from "../common/Icon";
 
 interface RuleCardProps {
@@ -77,10 +78,10 @@ export function RuleCard({ rule }: RuleCardProps) {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <a className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-bold text-white hover:bg-slate-800" href="/configuration?tab=test">
+        <button type="button" className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-bold text-white hover:bg-slate-800" onClick={() => navigateToClientPath("/configuration?tab=test")}>
           <Icon name="search" className="h-4 w-4" />
           Test configurazione
-        </a>
+        </button>
         <span className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700">
           <Icon name="settings" className="h-4 w-4" />
           Gestita nella console

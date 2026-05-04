@@ -11,6 +11,7 @@ import {
   type GraphSettingsStatus,
 } from "../services/configurationApi";
 import type { ReportSource, UpdateSourceRequest } from "../types/configuration";
+import { navigateToClientPath } from "../utils/clientNavigation";
 
 interface GraphFormState {
   name: string;
@@ -239,9 +240,9 @@ export function MicrosoftGraphPage() {
             >
               Aggiorna
             </button>
-            <a className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700" href="/inbox">
+            <button type="button" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700" onClick={() => navigateToClientPath("/inbox")}>
               Monitor ingressi
-            </a>
+            </button>
           </div>
         </div>
       </section>

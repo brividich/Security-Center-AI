@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from django import forms
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.db.models import Count
@@ -7,6 +8,7 @@ from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from .forms import (
@@ -78,6 +80,7 @@ INBOX_ALLOWED_EXTENSIONS = {".pdf", ".csv", ".txt", ".eml", ".log"}
 INBOX_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
+@ensure_csrf_cookie
 def dashboard(request):
     today = timezone.localdate()
     context = {
@@ -98,16 +101,31 @@ def dashboard(request):
     return render(request, "security/dashboard.html", context)
 
 
+@ensure_csrf_cookie
 def alerts_list(request):
     alerts = SecurityAlert.objects.select_related("source", "event").annotate(evidence_count=Count("evidence_containers")).order_by("-updated_at")
-    if request.GET.get("severity"):
-        alerts = alerts.filter(severity=request.GET["severity"])
-    if request.GET.get("status"):
-        alerts = alerts.filter(status=request.GET["status"])
-    if request.GET.get("source"):
-        alerts = alerts.filter(source_id=request.GET["source"])
-    if request.GET.get("date"):
-        alerts = alerts.filter(created_at__date=request.GET["date"])
+
+    # Validate and sanitize input
+    severity = request.GET.get("severity")
+    if severity and severity in [s[0] for s in Severity.choices]:
+        alerts = alerts.filter(severity=severity)
+
+    status = request.GET.get("status")
+    if status and status in [s[0] for s in Status.choices]:
+        alerts = alerts.filter(status=status)
+
+    source_id = request.GET.get("source")
+    if source_id and source_id.isdigit():
+        alerts = alerts.filter(source_id=int(source_id))
+
+    date_str = request.GET.get("date")
+    if date_str:
+        try:
+            from datetime import datetime
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            alerts = alerts.filter(created_at__date=date_obj)
+        except ValueError:
+            pass  # Invalid date format, ignore filter
 
     context = {
         "alerts": _decorate_alerts(alerts[:100]),
@@ -119,6 +137,7 @@ def alerts_list(request):
     return render(request, "security/alerts_list.html", context)
 
 
+@ensure_csrf_cookie
 def alert_detail(request, pk):
     alert = get_object_or_404(SecurityAlert.objects.select_related("source", "event"), pk=pk)
     alert.short_dedup_hash = alert.dedup_hash[:12] if alert.dedup_hash else ""
@@ -177,6 +196,7 @@ def alert_action(request, pk, action):
     return redirect("security:alert_detail", pk=alert.pk)
 
 
+@ensure_csrf_cookie
 def tickets_list(request):
     tickets = SecurityRemediationTicket.objects.select_related("source", "alert").order_by("-updated_at")
     return render(request, "security/tickets_list.html", {"tickets": tickets})
@@ -202,6 +222,7 @@ def pipeline_page(request):
     return render(request, "security/pipeline.html", {"last_pipeline_run": request.session.get("last_pipeline_run")})
 
 
+@ensure_csrf_cookie
 def inbox_page(request):
     if not can_view_security_center(request.user):
         return _security_center_denied(request)
@@ -260,6 +281,7 @@ def pipeline_run(request, action):
     return redirect(reverse("security:pipeline"))
 
 
+@ensure_csrf_cookie
 def admin_config_dashboard(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
@@ -277,6 +299,7 @@ def admin_config_dashboard(request):
     return render(request, "security/admin_config/dashboard.html", {"cards": cards, "recent_changes": SecurityConfigurationAuditLog.objects.select_related("actor").order_by("-created_at")[:8]})
 
 
+@ensure_csrf_cookie
 def admin_config_general(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
@@ -303,6 +326,7 @@ def admin_config_general(request):
     return render(request, "security/admin_config/general.html", {"rows": rows})
 
 
+@ensure_csrf_cookie
 def admin_config_sources(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
@@ -329,10 +353,12 @@ def admin_config_sources(request):
     return render(request, "security/admin_config/sources.html", {"objects": SecuritySourceConfig.objects.order_by("vendor", "name"), "form": form, "test_result": test_result})
 
 
+@ensure_csrf_cookie
 def admin_config_parsers(request):
     return _config_model_page(request, SecurityParserConfig, SecurityParserConfigForm, "security/admin_config/parsers.html", "admin_config_parsers", extra_context=_parser_stats())
 
 
+@ensure_csrf_cookie
 def admin_config_alert_rules(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
@@ -351,15 +377,18 @@ def admin_config_alert_rules(request):
     return render(request, "security/admin_config/alert_rules.html", {"objects": SecurityAlertRuleConfig.objects.order_by("source_type", "code"), "form": SecurityAlertRuleConfigForm(), "test_result": test_result})
 
 
+@ensure_csrf_cookie
 def admin_config_suppressions(request):
     return _config_model_page(request, SecurityAlertSuppressionRule, SecurityAlertSuppressionRuleForm, "security/admin_config/suppressions.html", "admin_config_suppressions")
 
 
+@ensure_csrf_cookie
 def admin_config_backups(request):
     extra = {"last_seen": {obj.pk: last_seen_backup_status(obj) for obj in BackupExpectedJobConfig.objects.all()}}
     return _config_model_page(request, BackupExpectedJobConfig, BackupExpectedJobConfigForm, "security/admin_config/backups.html", "admin_config_backups", extra_context=extra)
 
 
+@ensure_csrf_cookie
 def admin_config_notifications(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
@@ -380,16 +409,19 @@ def admin_config_notifications(request):
     return render(request, "security/admin_config/notifications.html", {"objects": SecurityNotificationChannel.objects.order_by("channel_type", "name"), "form": SecurityNotificationChannelForm()})
 
 
+@ensure_csrf_cookie
 def admin_config_ticketing(request):
     return _config_model_page(request, SecurityTicketConfig, SecurityTicketConfigForm, "security/admin_config/ticketing.html", "admin_config_ticketing")
 
 
+@ensure_csrf_cookie
 def admin_config_audit(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
     return render(request, "security/admin_config/audit.html", {"objects": SecurityConfigurationAuditLog.objects.select_related("actor").order_by("-created_at")[:200]})
 
 
+@ensure_csrf_cookie
 def admin_diagnostics(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
@@ -403,18 +435,21 @@ def admin_diagnostics(request):
     return render(request, "security/admin_diagnostics.html", build_diagnostics_context(match_input))
 
 
+@ensure_csrf_cookie
 def admin_docs(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
     return render(request, "security/admin_docs.html", {"docs": SECURITY_CENTER_DOCS})
 
 
+@ensure_csrf_cookie
 def admin_addons(request):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
     return render(request, "security/admin_addons.html", {"addons": get_addon_registry()})
 
 
+@ensure_csrf_cookie
 def admin_addon_detail(request, code):
     if not can_manage_security_config(request.user):
         return _security_config_denied(request)
@@ -809,6 +844,7 @@ SECURITY_CENTER_DOCS = [
 ]
 
 
+@ensure_csrf_cookie
 def admin_mailbox_sources_list(request):
     if not can_view_security_center(request.user):
         return HttpResponseForbidden("Accesso negato")
@@ -825,6 +861,7 @@ def admin_mailbox_sources_list(request):
     return render(request, "security/admin_mailbox_sources_list.html", context)
 
 
+@ensure_csrf_cookie
 def admin_mailbox_source_detail(request, code):
     if not can_view_security_center(request.user):
         return HttpResponseForbidden("Accesso negato")
