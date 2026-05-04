@@ -14,9 +14,16 @@ export class ServiceStatusApiError extends Error {
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-  const csrfToken = getCsrfToken();
+  const method = (options?.method || "GET").toUpperCase();
 
   try {
+    // Ensure CSRF token is available for non-safe methods
+    let csrfToken = getCsrfToken();
+    if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method) && !csrfToken) {
+      await ensureCsrfToken();
+      csrfToken = getCsrfToken();
+    }
+
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       credentials: "include",
@@ -45,6 +52,17 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
+  }
+}
+
+async function ensureCsrfToken(): Promise<void> {
+  const csrfEndpoint = "/security/api/configuration/test/";
+  const response = await fetch(csrfEndpoint, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new ServiceStatusApiError(`Impossibile ottenere token CSRF: ${response.status}`);
   }
 }
 

@@ -219,7 +219,7 @@ export function ConfigurationStudioPage({ defaultTab, onNavigate }: { defaultTab
           <div className="mt-1">
             {authRequired
               ? "Accedi con un utente autorizzato, poi torna qui e premi Riprova."
-              : "Avvia il backend su http://127.0.0.1:8000, controlla login e configurazione API, poi premi Riprova."}
+              : "Avvia il backend, controlla login e configurazione API, poi premi Riprova."}
           </div>
           <div className="mt-2 text-xs text-amber-800">{loadError}</div>
           <div className="mt-4 flex flex-wrap gap-2">

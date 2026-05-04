@@ -93,12 +93,18 @@ def build_database_config(env=None, base_dir=None):
     }
 
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", os.getenv("SECRET_KEY", "dev-only-change-me"))
-DEBUG = env_bool("DJANGO_DEBUG", env_bool("DEBUG", False))
-ALLOWED_HOSTS = env_list(
-    "DJANGO_ALLOWED_HOSTS",
-    os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1"),
-)
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY") or os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("DJANGO_SECRET_KEY or SECRET_KEY environment variable must be set")
+DEBUG = env_bool("DJANGO_DEBUG", False)
+if DEBUG and not env_bool("SECURITY_CENTER_DEV_MODE", False):
+    import warnings
+    warnings.warn("DEBUG mode is enabled. This should only be used in development.", RuntimeWarning)
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "")
+if not ALLOWED_HOSTS and DEBUG:
+    ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+elif not ALLOWED_HOSTS:
+    raise ValueError("DJANGO_ALLOWED_HOSTS environment variable must be set in production")
 CSRF_TRUSTED_ORIGINS = env_list(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     os.getenv("CSRF_TRUSTED_ORIGINS", ""),
@@ -175,3 +181,17 @@ CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:5173,h
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+
+# Security headers
+SECURE_HSTS_SECONDS = 31536000  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", False)
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", False)
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", False)
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = False
+X_FRAME_OPTIONS = "DENY"
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"

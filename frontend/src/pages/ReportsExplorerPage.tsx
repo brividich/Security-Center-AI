@@ -4,6 +4,7 @@ import { SeverityBadge } from "../components/common/SeverityBadge";
 import { severityLabel } from "../data/uiLabels";
 import { securityCenterApi, type OverviewData } from "../services/api";
 import type { PageKey, PipelineStep, ReportItem } from "../types/securityCenter";
+import { navigateToClientPath } from "../utils/clientNavigation";
 
 type StatusFilter = "all" | ReportItem["status"];
 type KindFilter = "all" | ReportItem["kind"];
@@ -675,7 +676,7 @@ function LinkedOperations({ report }: { report: ReportItem }) {
               title: alert.title,
               meta: `${severityLabel(alert.severity)} - ${severityLabel(alert.status)}`,
               count: formatLinkedDate(alert.updatedAt ?? alert.createdAt),
-              target: alert.detailUrl,
+              target: `/alerts/${alert.id}`,
             }))}
           />
         )}
@@ -687,7 +688,6 @@ function LinkedOperations({ report }: { report: ReportItem }) {
               title: ticket.title,
               meta: `${severityLabel(ticket.severity)} - ${severityLabel(ticket.status)}`,
               count: `${ticket.occurrenceCount} occ.`,
-              target: ticket.detailUrl,
             }))}
           />
         )}
@@ -763,8 +763,7 @@ function inputKindLabel(kind: string) {
 }
 
 function openInternalPath(path: string) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
+  navigateToClientPath(path);
 }
 
 function formatTimelineDate(value: string) {

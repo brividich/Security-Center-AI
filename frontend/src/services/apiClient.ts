@@ -32,7 +32,14 @@ export async function apiGet<T>(path: string, timeoutMs = API_TIMEOUT_MS): Promi
 export async function apiPost<T>(path: string, body: unknown = {}, timeoutMs = API_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-  const csrfToken = getCsrfToken();
+
+  // Ensure CSRF token is available
+  let csrfToken = getCsrfToken();
+  if (!csrfToken) {
+    await ensureCsrfToken();
+    csrfToken = getCsrfToken();
+  }
+
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
@@ -51,6 +58,17 @@ export async function apiPost<T>(path: string, body: unknown = {}, timeoutMs = A
     return (await response.json()) as T;
   } finally {
     window.clearTimeout(timeoutId);
+  }
+}
+
+async function ensureCsrfToken(): Promise<void> {
+  const csrfEndpoint = "/security/api/configuration/test/";
+  const response = await fetch(csrfEndpoint, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new ApiError(`Impossibile ottenere token CSRF: ${response.status}`, response.status);
   }
 }
 

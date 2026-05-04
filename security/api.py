@@ -60,6 +60,15 @@ class SecurityHealthApiView(APIView):
         return Response({"status": "ok"})
 
 
+class SecuritySessionApiView(APIView):
+    def get(self, request):
+        return Response({
+            "authenticated": request.user.is_authenticated,
+            "username": request.user.username if request.user.is_authenticated else None,
+            "can_view_security": request.user.has_perm("security.can_view_security_center") if request.user.is_authenticated else False,
+        })
+
+
 class SecurityAddonsApiView(APIView):
     permission_classes = [CanViewSecurityCenter]
 

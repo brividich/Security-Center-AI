@@ -7,5 +7,5 @@ interface CardProps {
 }
 
 export function Card({ children, className = "", as: Component = "section" }: CardProps) {
-  return <Component className={`rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 ${className}`}>{children}</Component>;
+  return <Component className={`rounded-lg border border-slate-200 bg-white p-5 shadow-sm ${className}`}>{children}</Component>;
 }

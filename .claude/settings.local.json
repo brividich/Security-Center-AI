@@ -31,7 +31,12 @@
       "Bash(git commit *)",
       "Bash(exist *)",
       "Bash(Select-String -Path \"C:\\\\Users\\\\luca\\\\Desktop\\\\Security Center\\\\security\\\\views.py\" -Pattern \"mailbox\" -SimpleMatch)",
-      "Bash(Select-Object LineNumber, Line)"
+      "Bash(Select-Object LineNumber, Line)",
+      "WebSearch",
+      "WebFetch(domain:pyshine.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(Get-Content \"C:\\\\Users\\\\luca\\\\.claude\\\\projects\\\\c--Users-luca-Desktop-Security-Center\\\\12b82253-08d6-4b3c-b26a-d1343ac218ac\\\\tool-results\\\\bxdickyad.txt\")",
+      "Bash(Select-Object -Last 20)"
     ]
   }
 }

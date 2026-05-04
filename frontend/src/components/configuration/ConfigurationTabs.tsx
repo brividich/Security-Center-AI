@@ -6,7 +6,7 @@ import { NotificationChannelCard } from "./NotificationChannelCard";
 import { SuppressionCard } from "./SuppressionCard";
 import { ConfigTestPanel } from "./ConfigTestPanel";
 import SourceSetupWizard from "./SourceSetupWizard";
-import { toggleSource } from "../../services/configurationApi";
+import { toggleSource, runSourceIngestion } from "../../services/configurationApi";
 import { Icon } from "../common/Icon";
 
 export type ConfigurationTabKey = "sources" | "rules" | "notifications" | "suppressions" | "test";
@@ -26,6 +26,7 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
   const [showWizard, setShowWizard] = useState(false);
   const [editingSource, setEditingSource] = useState<ReportSource | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -59,6 +60,19 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
       onRefresh();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Impossibile aggiornare la sorgente");
+    }
+  };
+
+  const handleSyncSource = async (source: ReportSource) => {
+    try {
+      setActionError(null);
+      setSyncingSourceId(source.id);
+      await runSourceIngestion(source.id);
+      onRefresh();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Impossibile avviare il sync della sorgente");
+    } finally {
+      setSyncingSourceId(null);
     }
   };
 
@@ -146,7 +160,14 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
             {sources.length ? (
               <div className="grid gap-4 md:grid-cols-2">
                 {sources.map((source) => (
-                  <SourceCard key={source.id} source={source} onEdit={handleEditSource} onToggle={handleToggleSource} />
+                  <SourceCard
+                    key={source.id}
+                    source={source}
+                    onEdit={handleEditSource}
+                    onToggle={handleToggleSource}
+                    onSync={handleSyncSource}
+                    isSyncing={syncingSourceId === source.id}
+                  />
                 ))}
               </div>
             ) : (

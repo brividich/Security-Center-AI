@@ -10,6 +10,23 @@ interface ApiEnvelope<T> {
   error?: string;
 }
 
+interface SessionResponse {
+  authenticated: boolean;
+  username: string | null;
+  can_view_security: boolean;
+}
+
+async function checkSession(): Promise<SessionResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/security/session/`, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    return { authenticated: false, username: null, can_view_security: false };
+  }
+  return response.json();
+}
+
 interface DashboardSummaryResponse {
   generated_at: string;
   open_alerts_count: number;
@@ -30,7 +47,6 @@ interface RecentAlertResponse {
   source?: string;
   created_at: string | null;
   updated_at: string | null;
-  detail_url: string;
 }
 
 interface KpiSummaryResponse {
@@ -63,13 +79,32 @@ interface AddonSummaryResponse {
   source_count: number;
   alert_rule_count: number;
   warning_count: number;
-  detail_url: string;
 }
 
 interface RecentAlertsResponse {
   generated_at: string;
   alerts: RecentAlertResponse[];
 }
+
+interface AssetResponse {
+  id: number;
+  hostname: string;
+  ip_address?: string | null;
+  asset_type?: string;
+  owner?: string;
+  updated_at?: string | null;
+}
+
+interface EvidenceResponse {
+  id: string;
+  title: string;
+  status: string;
+  created_at?: string | null;
+  source?: number;
+  alert?: number | null;
+}
+
+type ListResponse<T> = T[] | { results: T[] };
 
 interface InboxRecentResponse {
   generated_at: string;
@@ -111,7 +146,6 @@ interface InboxRecentResponse {
       source_name: string;
       created_at?: string | null;
       updated_at?: string | null;
-      detail_url: string;
     }>;
     ticket_preview?: Array<{
       id: number;
@@ -121,7 +155,6 @@ interface InboxRecentResponse {
       source_name: string;
       occurrence_count: number;
       updated_at?: string | null;
-      detail_url: string;
     }>;
     evidence_preview?: Array<{
       id: string;
@@ -227,7 +260,7 @@ async function loadEvents(): Promise<InboxItem[]> {
     source: alert.source_name ?? alert.source ?? "Security Center",
     time: formatTime(alert.updated_at ?? alert.created_at),
     severity: normalizeSeverity(alert.severity),
-    why: "Alert generato dal backend Security Center AI.",
+    why: "Alert generato dalla pipeline Security Center AI.",
     recommendation: "Usare la console per triage, evidenze e lifecycle.",
   }));
 }
@@ -266,7 +299,6 @@ async function loadReports(): Promise<ReportItem[]> {
       sourceName: alert.source_name,
       createdAt: alert.created_at,
       updatedAt: alert.updated_at,
-      detailUrl: alert.detail_url,
     })),
     ticketPreview: report.ticket_preview?.map((ticket) => ({
       id: ticket.id,
@@ -276,7 +308,6 @@ async function loadReports(): Promise<ReportItem[]> {
       sourceName: ticket.source_name,
       occurrenceCount: ticket.occurrence_count,
       updatedAt: ticket.updated_at,
-      detailUrl: ticket.detail_url,
     })),
     evidencePreview: report.evidence_preview?.map((evidence) => ({
       id: evidence.id,
@@ -411,8 +442,33 @@ function buildInboxItems(alerts: RecentAlertResponse[]): InboxItem[] {
     source: alert.source_name ?? alert.source ?? "Security Center",
     time: formatTime(alert.updated_at ?? alert.created_at),
     severity: normalizeSeverity(alert.severity),
-    why: "Alert generato dal backend Security Center AI.",
+    why: "Alert generato dalla pipeline Security Center AI.",
     recommendation: "Usare la console per triage, evidenze e lifecycle.",
+  }));
+}
+
+async function loadAssets() {
+  const response = await apiClient.get<ListResponse<AssetResponse>>("/api/assets/");
+  const rows = Array.isArray(response) ? response : response.results;
+  return rows.slice(0, 50).map((asset) => ({
+    name: asset.hostname,
+    status: "Healthy" as const,
+    signal: [
+      asset.asset_type || "asset",
+      asset.ip_address ? "IP registrato" : "IP non disponibile",
+      asset.updated_at ? `aggiornato ${formatDateTime(asset.updated_at)}` : "mai aggiornato",
+    ].join(" - "),
+    owner: asset.owner || "Non assegnato",
+  }));
+}
+
+async function loadEvidence(): Promise<EvidenceItem[]> {
+  const response = await apiClient.get<ListResponse<EvidenceResponse>>("/api/evidence/");
+  const rows = Array.isArray(response) ? response : response.results;
+  return rows.slice(0, 50).map((item) => ({
+    name: item.title || String(item.id),
+    status: item.status === "closed" || item.status === "resolved" ? "stored" : "open",
+    meta: [item.created_at ? formatDateTime(item.created_at) : "data non disponibile", item.alert ? `alert ${item.alert}` : "alert non collegato"].join(" - "),
   }));
 }
 
@@ -583,6 +639,9 @@ function formatDateTime(value: string | null) {
 
 export const securityCenterApi = {
   baseUrl: API_BASE_URL,
+  async checkSession() {
+    return checkSession();
+  },
   async getOverview() {
     return { data: await loadOverview(), source: "api" as const };
   },
@@ -590,7 +649,7 @@ export const securityCenterApi = {
     return { data: await loadEvents(), source: "api" as const };
   },
   async getAssets() {
-    return [];
+    return loadAssets();
   },
   async getReports() {
     return { data: await loadReports(), source: "api" as const };
@@ -612,7 +671,7 @@ export const securityCenterApi = {
     return { data: mapBulkRetryResponse(response), source: "api" as const };
   },
   async getEvidence(): Promise<EvidenceItem[]> {
-    return [];
+    return loadEvidence();
   },
   async getRules(): Promise<RuleItem[]> {
     return [];

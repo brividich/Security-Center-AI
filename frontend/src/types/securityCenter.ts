@@ -10,6 +10,7 @@ export type PageKey =
   | "module-backup-nas"
   | "module-custom"
   | "inbox"
+  | "alerts"
   | "assets"
   | "reports"
   | "evidence"
@@ -162,7 +163,6 @@ export interface ReportLinkedAlert {
   sourceName: string;
   createdAt?: string | null;
   updatedAt?: string | null;
-  detailUrl: string;
 }
 
 export interface ReportLinkedTicket {
@@ -173,7 +173,6 @@ export interface ReportLinkedTicket {
   sourceName: string;
   occurrenceCount: number;
   updatedAt?: string | null;
-  detailUrl: string;
 }
 
 export interface ReportLinkedEvidence {
