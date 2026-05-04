@@ -36,7 +36,22 @@
       "WebFetch(domain:pyshine.com)",
       "WebFetch(domain:github.com)",
       "Bash(Get-Content \"C:\\\\Users\\\\luca\\\\.claude\\\\projects\\\\c--Users-luca-Desktop-Security-Center\\\\12b82253-08d6-4b3c-b26a-d1343ac218ac\\\\tool-results\\\\bxdickyad.txt\")",
-      "Bash(Select-Object -Last 20)"
+      "Bash(Select-Object -Last 20)",
+      "Bash(git push *)",
+      "Bash(gh auth *)",
+      "Bash(gh search *)",
+      "Bash(pip install *)",
+      "Bash(curl -X POST http://127.0.0.1:8000/api/security/ai/chat/ -H \"Content-Type: application/json\" -d '{\"message\":\"Ciao\",\"history\":[]}' -v)",
+      "Bash(curl -X GET http://127.0.0.1:8000/api/security/session/ -H \"Content-Type: application/json\" -v)",
+      "Bash(curl -X GET http://127.0.0.1:8000/api/security/auth/login/ -H \"Content-Type: application/json\" -v)",
+      "Bash(curl -X POST http://127.0.0.1:8000/api/security/auth/login/ -H \"Content-Type: application/json\" -H \"X-CSRFToken: O9XsBtQEHDyLI0hJT9by1ICnlIBUiCQ5IkDaPB7eRXPZrO9parUTBDPgqbbuDAxJ\" -d '{\"username\":\"sysadmin\",\"password\":\"admin\"}' -v)",
+      "Bash(curl -X POST http://127.0.0.1:8000/api/security/auth/login/ -H \"Content-Type: application/json\" -H \"X-CSRFToken: O9XsBtQEHDyLI0hJT9by1ICnlIBUiCQ5IkDaPB7eRXPZrO9parUTBDPgqbbuDAxJ\" -d '{\"username\":\"sysadmin\",\"password\":\"admin\"}')",
+      "Bash(curl -X POST http://127.0.0.1:8000/api/security/auth/login/ -H \"Content-Type: application/json\" -H \"X-CSRFToken: O9XsBtQEHDyLI0hJT9by1ICnlIBUiCQ5IkDaPB7eRXPZrO9parUTBDPgqbbuDAxJ\" -d '{\"username\":\"sysadmin\",\"password\":\"admin123\"}' -c /tmp/cookies.txt -b /tmp/cookies.txt)",
+      "Bash(curl -X POST http://127.0.0.1:8000/api/security/ai/chat/ -H \"Content-Type: application/json\" -H \"X-CSRFToken: O9XsBtQEHDyLI0hJT9by1ICnlIBUiCQ5IkDaPB7eRXPZrO9parUTBDPgqbbuDAxJ\" -d '{\"message\":\"Ciao\",\"history\":[]}' -b /tmp/cookies.txt -c /tmp/cookies.txt)",
+      "Bash(curl -X GET http://127.0.0.1:8000/api/security/auth/login/ -H \"Content-Type: application/json\" -b /tmp/cookies.txt -c /tmp/cookies.txt)",
+      "Bash(curl -X GET http://127.0.0.1:8000/api/security/auth/login/ -H \"Content-Type: application/json\" -b /tmp/cookies.txt -c /tmp/cookies.txt -v)",
+      "Bash(curl -X POST http://127.0.0.1:8000/api/security/ai/chat/ -H \"Content-Type: application/json\" -H \"X-CSRFToken: eYFXtLO84owN207f2DU9uctmEbVb7d3A\" -d '{\"message\":\"Ciao\",\"history\":[]}' -b /tmp/cookies.txt -c /tmp/cookies.txt)",
+      "Bash(curl -s http://localhost:5173/ai)"
     ]
   }
 }

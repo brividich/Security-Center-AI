@@ -2,6 +2,12 @@ import type { ReactNode } from "react";
 
 export type PageKey =
   | "overview"
+  | "login"
+  | "admin-users"
+  | "admin-groups"
+  | "users"
+  | "groups"
+  | "ai"
   | "addons"
   | "microsoft-graph"
   | "modules"
@@ -22,6 +28,8 @@ export type Severity = "critical" | "high" | "medium" | "warning" | "low";
 export type IconName =
   | "shield"
   | "alert"
+  | "alert-circle"
+  | "alert-triangle"
   | "network"
   | "disk"
   | "mail"
@@ -35,10 +43,14 @@ export type IconName =
   | "silence"
   | "eye"
   | "check"
+  | "check-circle"
   | "chevron"
   | "grid"
   | "circle"
-  | "settings";
+  | "settings"
+  | "bell"
+  | "bell-off"
+  | "info";
 
 export interface NavItem {
   key: PageKey;

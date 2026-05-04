@@ -13,7 +13,7 @@ import {
 import type { ReportSource, AlertRule, NotificationChannel, SuppressionRule } from "../types/configuration";
 import type { PageKey } from "../types/securityCenter";
 
-const validTabs: ConfigurationTabKey[] = ["sources", "rules", "notifications", "suppressions", "test"];
+const validTabs: ConfigurationTabKey[] = ["sources", "rules", "notifications", "suppressions", "test", "users", "groups"];
 
 function tabFromLocation(): ConfigurationTabKey {
   const tab = new URLSearchParams(window.location.search).get("tab");

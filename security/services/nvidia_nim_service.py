@@ -1,0 +1,248 @@
+import os
+import requests
+from typing import Dict, List, Optional, Generator
+from django.core.cache import cache
+import json
+
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
+NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+
+# Cache settings
+CACHE_TIMEOUT = 3600  # 1 hour
+
+
+class NVIDIA_NIM_Service:
+    def __init__(self):
+        self.api_key = NVIDIA_API_KEY
+        self.api_url = NVIDIA_API_URL
+
+    def _get_headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "meta/llama-3.1-70b-instruct",
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        stream: bool = False,
+    ) -> Dict:
+        """Invia richiesta di chat completion a NVIDIA NIM"""
+        cache_key = f"nim_chat:{hash(json.dumps(messages))}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": stream,
+        }
+
+        response = requests.post(
+            self.api_url,
+            headers=self._get_headers(),
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+
+        result = response.json()
+        cache.set(cache_key, result, CACHE_TIMEOUT)
+        return result
+
+    def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "meta/llama-3.1-70b-instruct",
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ) -> Generator[str, None, None]:
+        """Invia richiesta di chat completion con streaming"""
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+
+        response = requests.post(
+            self.api_url,
+            headers=self._get_headers(),
+            json=payload,
+            stream=True,
+            timeout=30,
+        )
+        response.raise_for_status()
+
+        for line in response.iter_lines():
+            if line:
+                try:
+                    data = json.loads(line.decode("utf-8").replace("data: ", ""))
+                    if "choices" in data and len(data["choices"]) > 0:
+                        delta = data["choices"][0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                except json.JSONDecodeError:
+                    continue
+
+    def analyze_security_report(self, report_content: str) -> Dict:
+        """Analizza un report di sicurezza"""
+        system_prompt = """Sei un esperto di sicurezza informatica. Analizza il seguente report di sicurezza e fornisci:
+1. Riassunto esecutivo (max 200 parole)
+2. Vulnerabilità rilevate (CVE, severità, asset)
+3. Raccomandazioni prioritarie
+4. Rischi identificati
+5. Azioni suggerite
+
+Rispondi in formato JSON con le seguenti chiavi:
+{
+  "summary": "riassunto esecutivo",
+  "vulnerabilities": [{"cve": "CVE-XXXX-XXXX", "severity": "high/medium/low", "asset": "hostname/IP", "description": "descrizione"}],
+  "recommendations": ["raccomandazione 1", "raccomandazione 2"],
+  "risks": ["rischio 1", "rischio 2"],
+  "suggested_actions": ["azione 1", "azione 2"]
+}"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Analizza questo report:\n\n{report_content}"},
+        ]
+
+        response = self.chat_completion(
+            messages=messages,
+            model="meta/llama-3.1-70b-instruct",
+            temperature=0.3,
+            max_tokens=4096,
+        )
+
+        try:
+            content = response["choices"][0]["message"]["content"]
+            return json.loads(content)
+        except (KeyError, json.JSONDecodeError):
+            return {
+                "summary": "Impossibile analizzare il report",
+                "vulnerabilities": [],
+                "recommendations": [],
+                "risks": [],
+                "suggested_actions": [],
+            }
+
+    def suggest_alert_rule(self, context: str) -> Dict:
+        """Suggerisce una regola di alert basata sul contesto"""
+        system_prompt = """Sei un esperto di sicurezza informatica. Basandoti sul contesto fornito, suggerisci una regola di alert appropriata.
+
+Rispondi in formato JSON con le seguenti chiavi:
+{
+  "rule_name": "nome della regola",
+  "condition": "condizione che deve attivare l'alert",
+  "severity": "critical/high/medium/low",
+  "description": "descrizione della regola",
+  "recommended_actions": ["azione 1", "azione 2"],
+  "rationale": "spiegazione del perché questa regola è appropriata"
+}"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Contesto:\n\n{context}"},
+        ]
+
+        response = self.chat_completion(
+            messages=messages,
+            model="meta/llama-3.1-8b-instruct",
+            temperature=0.5,
+            max_tokens=1024,
+        )
+
+        try:
+            content = response["choices"][0]["message"]["content"]
+            return json.loads(content)
+        except (KeyError, json.JSONDecodeError):
+            return {
+                "rule_name": "Regola generica",
+                "condition": "condizione generica",
+                "severity": "medium",
+                "description": "Descrizione generica",
+                "recommended_actions": [],
+                "rationale": "Impossibile generare suggerimento",
+            }
+
+    def analyze_events(self, events: List[Dict]) -> Dict:
+        """Analizza una serie di eventi per rilevare pattern"""
+        system_prompt = """Sei un esperto di sicurezza informatica. Analizza la seguente serie di eventi e fornisci:
+1. Pattern rilevati
+2. Eventi anomali
+3. Correlazioni tra eventi
+4. Minacce potenziali
+5. Raccomandazioni
+
+Rispondi in formato JSON con le seguenti chiavi:
+{
+  "patterns": ["pattern 1", "pattern 2"],
+  "anomalies": [{"event_id": "ID", "description": "descrizione"}],
+  "correlations": ["correlazione 1", "correlazione 2"],
+  "potential_threats": ["minaccia 1", "minaccia 2"],
+  "recommendations": ["raccomandazione 1", "raccomandazione 2"]
+}"""
+
+        events_json = json.dumps(events, indent=2)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Eventi:\n\n{events_json}"},
+        ]
+
+        response = self.chat_completion(
+            messages=messages,
+            model="meta/llama-3.1-70b-instruct",
+            temperature=0.4,
+            max_tokens=4096,
+        )
+
+        try:
+            content = response["choices"][0]["message"]["content"]
+            return json.loads(content)
+        except (KeyError, json.JSONDecodeError):
+            return {
+                "patterns": [],
+                "anomalies": [],
+                "correlations": [],
+                "potential_threats": [],
+                "recommendations": [],
+            }
+
+    def generate_summary(self, data: Dict) -> str:
+        """Genera un riassunto dei dati forniti"""
+        system_prompt = """Sei un esperto di sicurezza informatica. Genera un riassunto conciso e informativo dei dati forniti.
+Il riassunto deve essere in italiano, massimo 300 parole, e includere:
+- Punti chiave
+- Metriche importanti
+- Raccomandazioni principali"""
+
+        data_json = json.dumps(data, indent=2)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Dati:\n\n{data_json}"},
+        ]
+
+        response = self.chat_completion(
+            messages=messages,
+            model="meta/llama-3.1-8b-instruct",
+            temperature=0.5,
+            max_tokens=512,
+        )
+
+        try:
+            return response["choices"][0]["message"]["content"]
+        except KeyError:
+            return "Impossibile generare riassunto"
+
+
+# Singleton instance
+nvidia_nim_service = NVIDIA_NIM_Service()

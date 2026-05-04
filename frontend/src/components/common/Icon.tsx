@@ -33,6 +33,20 @@ export function Icon({ name = "circle", className = "h-5 w-5" }: IconProps) {
         <path d="M12 18h.01" />
       </>
     ),
+    "alert-circle": (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v4" />
+        <path d="M12 16h.01" />
+      </>
+    ),
+    "alert-triangle": (
+      <>
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </>
+    ),
     network: (
       <>
         <rect x="3" y="4" width="7" height="6" rx="1" />
@@ -126,6 +140,12 @@ export function Icon({ name = "circle", className = "h-5 w-5" }: IconProps) {
         <path d="m8.5 12.5 2.2 2.2 4.8-5.4" />
       </>
     ),
+    "check-circle": (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="m9 12 2 2 4-4" />
+      </>
+    ),
     chevron: <path d="m9 18 6-6-6-6" />,
     grid: (
       <>
@@ -140,6 +160,25 @@ export function Icon({ name = "circle", className = "h-5 w-5" }: IconProps) {
       <>
         <circle cx="12" cy="12" r="3" />
         <path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.2 4.2 4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.2-4.2 4.2-4.2" />
+      </>
+    ),
+    bell: (
+      <>
+        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+        <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+      </>
+    ),
+    "bell-off": (
+      <>
+        <path d="M2.85 2.1 2 2.95l2.8 2.8A6 6 0 0 0 6 8c0 7-3 9-3 9h12l2 2 1.15-1.15L2.85 2.1Z" />
+        <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+      </>
+    ),
+    info: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 16v-4" />
+        <path d="M12 8h.01" />
       </>
     ),
   };

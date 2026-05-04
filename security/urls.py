@@ -14,6 +14,13 @@ from .api import (
     SecuritySessionApiView,
     router,
 )
+from .api_ai import (
+    AIChatApiView,
+    AIAnalyzeReportApiView,
+    AISuggestAlertRuleApiView,
+    AIAnalyzeEventsApiView,
+    AIGenerateSummaryApiView,
+)
 from .api_configuration import (
     ConfigurationOverviewApiView,
     ConfigurationSourcesApiView,
@@ -29,6 +36,12 @@ from .api_configuration import (
     MailboxIngestionServiceStatusApiView,
     MailboxIngestionServiceRunApiView,
     GraphSettingsApiView,
+    LoginApiView,
+    LogoutApiView,
+    UsersListApiView,
+    UserDetailApiView,
+    GroupsListApiView,
+    GroupDetailApiView,
 )
 from . import views
 
@@ -86,5 +99,16 @@ urlpatterns = [
     path("security/api/configuration/notifications/", ConfigurationNotificationsApiView.as_view(), name="api_configuration_notifications"),
     path("security/api/configuration/suppressions/", ConfigurationSuppressionsApiView.as_view(), name="api_configuration_suppressions"),
     path("security/api/configuration/test/", ConfigurationTestApiView.as_view(), name="api_configuration_test"),
+    path("api/security/auth/login/", LoginApiView.as_view(), name="api_auth_login"),
+    path("api/security/auth/logout/", LogoutApiView.as_view(), name="api_auth_logout"),
+    path("api/security/users/", UsersListApiView.as_view(), name="api_users_list"),
+    path("api/security/users/<int:user_id>/", UserDetailApiView.as_view(), name="api_user_detail"),
+    path("api/security/groups/", GroupsListApiView.as_view(), name="api_groups_list"),
+    path("api/security/groups/<int:group_id>/", GroupDetailApiView.as_view(), name="api_group_detail"),
+    path("api/security/ai/chat/", AIChatApiView.as_view(), name="api_ai_chat"),
+    path("api/security/ai/analyze-report/", AIAnalyzeReportApiView.as_view(), name="api_ai_analyze_report"),
+    path("api/security/ai/suggest-alert-rule/", AISuggestAlertRuleApiView.as_view(), name="api_ai_suggest_alert_rule"),
+    path("api/security/ai/analyze-events/", AIAnalyzeEventsApiView.as_view(), name="api_ai_analyze_events"),
+    path("api/security/ai/generate-summary/", AIGenerateSummaryApiView.as_view(), name="api_ai_generate_summary"),
     path("api/", include(router.urls)),
 ]
