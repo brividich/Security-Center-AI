@@ -6,11 +6,13 @@ import { NotificationChannelCard } from "./NotificationChannelCard";
 import { SuppressionCard } from "./SuppressionCard";
 import { ConfigTestPanel } from "./ConfigTestPanel";
 import SourceSetupWizard from "./SourceSetupWizard";
-import { toggleSource, runSourceIngestion } from "../../services/configurationApi";
+import { toggleSource, runSourceIngestion, createRule } from "../../services/configurationApi";
 import { Icon } from "../common/Icon";
 import { UsersPage } from "../../pages/UsersPage";
 import { GroupsPage } from "../../pages/GroupsPage";
 import { AIAssistantPage } from "../../pages/AIAssistantPage";
+import { ServiceConfigAssistant } from "../services/ServiceConfigAssistant";
+import type { AISuggestion } from "../../services/aiApi";
 
 export type ConfigurationTabKey = "sources" | "rules" | "notifications" | "suppressions" | "test" | "users" | "groups" | "ai";
 
@@ -30,6 +32,7 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
   const [editingSource, setEditingSource] = useState<ReportSource | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null);
+  const [savingRule, setSavingRule] = useState(false);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -49,6 +52,26 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
     setShowWizard(false);
     setEditingSource(null);
     onRefresh();
+  };
+
+  const handleSuggestionAccepted = async (suggestion: AISuggestion) => {
+    setSavingRule(true);
+    setActionError(null);
+    try {
+      await createRule({
+        rule_name: suggestion.rule_name,
+        condition: suggestion.condition,
+        severity: suggestion.severity,
+        description: suggestion.description,
+        recommended_actions: suggestion.recommended_actions,
+        rationale: suggestion.rationale,
+      });
+      onRefresh();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Impossibile salvare la regola");
+    } finally {
+      setSavingRule(false);
+    }
   };
 
   const selectTab = (tab: ConfigurationTabKey) => {
@@ -195,7 +218,25 @@ export function ConfigurationTabs({ sources, rules, channels, suppressions, onRe
         )}
 
         {activeTab === "rules" && (
-          <div>
+          <div className="space-y-6">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="flex items-start gap-3">
+                <Icon name="bot" className="h-6 w-6 text-blue-600 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-blue-950">Assistente Configurazione Regole</h3>
+                  <p className="mt-1 text-sm text-blue-700">
+                    Usa l'AI per generare automaticamente regole di alert basate sulla descrizione del servizio.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <ServiceConfigAssistant
+                  onSuggestionAccepted={handleSuggestionAccepted}
+                  disabled={savingRule}
+                />
+              </div>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
               {rules.length ? (
                 rules.map((rule) => (

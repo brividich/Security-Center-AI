@@ -21,7 +21,7 @@ from .models import (
     Severity,
     Status,
 )
-from .permissions import CanViewSecurityCenter
+from .permissions import CanViewSecurityCenter, CanManageSecurityCenter
 from .services.addon_registry import ACTIVE_ALERT_STATUSES, ADDONS
 from .services.configuration import can_manage_security_config, get_setting, set_setting
 from .services.mailbox_ingestion import run_mailbox_ingestion
@@ -116,6 +116,11 @@ class ConfigurationSourcesApiView(APIView):
 class ConfigurationRulesApiView(APIView):
     permission_classes = [CanViewSecurityCenter]
 
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [CanManageSecurityCenter()]
+        return super().get_permissions()
+
     def get(self, request):
         db_rules = SecurityAlertRuleConfig.objects.all().order_by("-enabled", "name")
 
@@ -143,6 +148,66 @@ class ConfigurationRulesApiView(APIView):
         result.extend(conceptual_rules)
 
         return Response(result)
+
+    def post(self, request):
+        data = request.data
+
+        rule_name = data.get("rule_name", "").strip()
+        condition = data.get("condition", "").strip()
+        severity = data.get("severity", "medium").strip().lower()
+        description = data.get("description", "").strip()
+        recommended_actions = data.get("recommended_actions", [])
+        rationale = data.get("rationale", "").strip()
+
+        if not rule_name:
+            return Response({"error": "rule_name required"}, status=http_status.HTTP_400_BAD_REQUEST)
+        if not condition:
+            return Response({"error": "condition required"}, status=http_status.HTTP_400_BAD_REQUEST)
+
+        valid_severities = ["critical", "high", "medium", "low", "info"]
+        if severity not in valid_severities:
+            return Response(
+                {"error": f"severity must be one of: {', '.join(valid_severities)}"},
+                status=http_status.HTTP_400_BAD_REQUEST,
+            )
+
+        code = _generate_rule_code(rule_name)
+        if SecurityAlertRuleConfig.objects.filter(code=code).exists():
+            return Response({"error": "rule with this code already exists"}, status=http_status.HTTP_400_BAD_REQUEST)
+
+        rule = SecurityAlertRuleConfig.objects.create(
+            code=code,
+            name=rule_name,
+            enabled=True,
+            source_type="ai_generated",
+            metric_name="ai_condition",
+            condition_operator="contains",
+            threshold_value=condition,
+            severity=severity,
+            cooldown_minutes=60,
+            dedup_window_minutes=1440,
+            auto_create_ticket=False,
+            auto_create_evidence_container=True,
+            description=description,
+        )
+
+        return Response({
+            "success": True,
+            "rule": {
+                "code": rule.code,
+                "title": rule.name,
+                "enabled": rule.enabled,
+                "severity": rule.severity,
+                "when_summary": _build_when_summary(rule),
+                "then_summary": _build_then_summary(rule),
+                "dedup_summary": f"{rule.dedup_window_minutes} min",
+                "aggregation_summary": rule.metric_name or "N/A",
+                "last_match_at": rule.last_triggered_at.isoformat() if rule.last_triggered_at else None,
+                "matches_count": rule.trigger_count,
+                "status": "active" if rule.enabled else "disabled",
+                "warning_messages": [],
+            }
+        }, status=http_status.HTTP_201_CREATED)
 
 
 class ConfigurationNotificationsApiView(APIView):
@@ -1417,3 +1482,15 @@ class GroupDetailApiView(APIView):
 
         group.delete()
         return Response({"deleted": True})
+
+
+def _generate_rule_code(rule_name):
+    import re
+    base = re.sub(r"[^a-z0-9]+", "-", rule_name.lower()).strip("-")
+    base = base[:50]
+    code = f"ai-{base}"
+    counter = 1
+    while SecurityAlertRuleConfig.objects.filter(code=code).exists():
+        code = f"ai-{base}-{counter}"
+        counter += 1
+    return code

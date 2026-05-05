@@ -265,3 +265,146 @@ class ConfigurationApiTestCase(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_create_rule_with_valid_payload_creates_security_alert_rule_config(self):
+        initial_count = SecurityAlertRuleConfig.objects.count()
+
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "rule_name": "Test AI Rule",
+                "condition": "severity == critical",
+                "severity": "high",
+                "description": "Test rule for AI generation",
+                "recommended_actions": ["Investigate", "Patch"],
+                "rationale": "Test rationale",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertIn("rule", data)
+        self.assertEqual(data["rule"]["title"], "Test AI Rule")
+        self.assertEqual(data["rule"]["enabled"], True)
+        self.assertEqual(data["rule"]["severity"], "high")
+
+        final_count = SecurityAlertRuleConfig.objects.count()
+        self.assertEqual(final_count, initial_count + 1)
+
+        rule = SecurityAlertRuleConfig.objects.get(code=data["rule"]["code"])
+        self.assertEqual(rule.name, "Test AI Rule")
+        self.assertEqual(rule.source_type, "ai_generated")
+        self.assertEqual(rule.metric_name, "ai_condition")
+        self.assertEqual(rule.condition_operator, "contains")
+        self.assertEqual(rule.threshold_value, "severity == critical")
+
+    def test_create_rule_requires_rule_name_and_condition(self):
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={"severity": "high"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertIn("error", data)
+
+    def test_create_rule_rejects_invalid_severity(self):
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "rule_name": "Test Rule",
+                "condition": "test",
+                "severity": "invalid",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertIn("error", data)
+        self.assertIn("severity", data["error"].lower())
+
+    def test_create_rule_handles_duplicate_code_gracefully(self):
+        SecurityAlertRuleConfig.objects.create(
+            code="ai-test-ai-rule",
+            name="Existing Rule",
+            enabled=True,
+            severity=Severity.HIGH,
+        )
+
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "rule_name": "Test AI Rule",
+                "condition": "test",
+                "severity": "high",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertIn("rule", data)
+        self.assertNotEqual(data["rule"]["code"], "ai-test-ai-rule")
+        self.assertEqual(data["rule"]["code"], "ai-test-ai-rule-1")
+
+    def test_create_rule_requires_manage_permission(self):
+        from django.contrib.auth.models import Permission
+
+        view_user = User.objects.create_user(username="viewuser", password="testpass", is_staff=False)
+        view_perm = Permission.objects.filter(codename="view_securitycenter").first()
+        if view_perm:
+            view_user.user_permissions.add(view_perm)
+
+        self.client.force_authenticate(user=view_user)
+
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "rule_name": "Test Rule",
+                "condition": "test",
+                "severity": "high",
+            },
+            format="json",
+        )
+
+        self.assertIn(response.status_code, [401, 403])
+
+    def test_create_rule_validates_all_severity_levels(self):
+        valid_severities = ["critical", "high", "medium", "low", "info"]
+
+        for severity in valid_severities:
+            response = self.client.post(
+                reverse("security:api_configuration_rules"),
+                data={
+                    "rule_name": f"Test Rule {severity}",
+                    "condition": f"test {severity}",
+                    "severity": severity,
+                },
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, 201, f"Failed for severity: {severity}")
+            data = response.json()
+            self.assertTrue(data["success"])
+
+    def test_get_rules_still_works_after_post_endpoint_added(self):
+        SecurityAlertRuleConfig.objects.create(
+            code="test-get-rule",
+            name="Test Get Rule",
+            enabled=True,
+            severity=Severity.HIGH,
+        )
+
+        response = self.client.get(reverse("security:api_configuration_rules"))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertIsInstance(data, list)
+        rule_dto = next((r for r in data if r["code"] == "test-get-rule"), None)
+        self.assertIsNotNone(rule_dto)
+        self.assertEqual(rule_dto["title"], "Test Get Rule")

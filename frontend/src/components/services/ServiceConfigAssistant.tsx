@@ -4,9 +4,10 @@ import { Icon } from "../common/Icon";
 
 interface ServiceConfigAssistantProps {
   onSuggestionAccepted?: (suggestion: AISuggestion) => void;
+  disabled?: boolean;
 }
 
-export function ServiceConfigAssistant({ onSuggestionAccepted }: ServiceConfigAssistantProps) {
+export function ServiceConfigAssistant({ onSuggestionAccepted, disabled = false }: ServiceConfigAssistantProps) {
   const [loading, setLoading] = useState(false);
   const [suggestion, setSuggestion] = useState<AISuggestion | null>(null);
   const [error, setError] = useState("");
@@ -174,9 +175,10 @@ export function ServiceConfigAssistant({ onSuggestionAccepted }: ServiceConfigAs
 
             <button
               onClick={handleAccept}
-              className="w-full rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700"
+              disabled={disabled}
+              className="w-full rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500"
             >
-              Accetta e Crea Regola
+              {disabled ? "Salvataggio in corso..." : "Accetta e Crea Regola"}
             </button>
           </div>
         </div>

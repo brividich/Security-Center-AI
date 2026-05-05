@@ -346,3 +346,29 @@ export async function saveGraphSettings(request: SaveGraphSettingsRequest): Prom
     body: JSON.stringify(request),
   });
 }
+
+export async function createRule(request: {
+  rule_name: string;
+  condition: string;
+  severity: string;
+  description: string;
+  recommended_actions: string[];
+  rationale: string;
+}): Promise<AlertRule> {
+  const data = await fetchApi<any>("/security/api/configuration/rules/", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+  return {
+    id: data.rule.code,
+    name: data.rule.title,
+    when: data.rule.when_summary,
+    then: data.rule.then_summary,
+    severity: data.rule.severity as any,
+    deduplication: data.rule.dedup_summary,
+    aggregation: data.rule.aggregation_summary,
+    enabled: data.rule.enabled,
+    lastMatch: data.rule.last_match_at,
+    actions: extractActions(data.rule.then_summary),
+  };
+}
