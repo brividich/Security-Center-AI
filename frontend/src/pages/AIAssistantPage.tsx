@@ -11,43 +11,75 @@ export function AIAssistantPage() {
   const [operationsData, setOperationsData] = useState<AIOperationsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [quickPrompt, setQuickPrompt] = useState("");
+  const [quickPromptKey, setQuickPromptKey] = useState(0);
 
   const page = params.get("page");
   const objectType = params.get("object_type");
   const objectId = params.get("object_id");
+  const promptParam = params.get("prompt");
 
-  const initialContext = page && objectType && objectId
-    ? { object_type: objectType, object_id: objectId }
+  const initialContext = page
+    ? {
+        page,
+        ...(objectType ? { object_type: objectType } : {}),
+        ...(objectId ? { object_id: objectId } : {}),
+      }
     : undefined;
 
-  const suggestedQuestions = page === "alert"
-    ? [
-        "Spiegami questo alert",
-        "Qual è la gravità?",
-        "Quali evidenze lo supportano?",
-        "Quali azioni consigli?",
-      ]
-    : page === "report"
-      ? [
-          "Riassumi questo report",
-          "Quali KPI importanti emergono?",
-          "Ci sono anomalie?",
-          "Che alert può generare?",
-        ]
-      : page === "ticket"
+  const suggestedQuestions = promptParam
+    ? [promptParam, ...(page === "alert"
         ? [
-            "Spiegami questo ticket",
-            "Qual è il piano remediation?",
-            "Che priorità ha?",
-            "Cosa manca per chiuderlo?",
+            "Qual è la gravità?",
+            "Quali evidenze lo supportano?",
+            "Quali azioni consigli?",
           ]
-        : page === "evidence"
+        : page === "report"
           ? [
-              "Riassumi queste evidenze",
-              "Che cosa dimostrano?",
-              "Quali dati mancano?",
+              "Quali KPI importanti emergono?",
+              "Ci sono anomalie?",
+              "Che alert può generare?",
             ]
-          : undefined;
+          : page === "ticket"
+            ? [
+                "Qual è il piano remediation?",
+                "Che priorità ha?",
+                "Cosa manca per chiuderlo?",
+              ]
+            : page === "evidence"
+              ? [
+                  "Che cosa dimostrano?",
+                  "Quali dati mancano?",
+                ]
+              : [])]
+    : page === "alert"
+      ? [
+          "Spiegami questo alert",
+          "Qual è la gravità?",
+          "Quali evidenze lo supportano?",
+          "Quali azioni consigli?",
+        ]
+      : page === "report"
+        ? [
+            "Riassumi questo report",
+            "Quali KPI importanti emergono?",
+            "Ci sono anomalie?",
+            "Che alert può generare?",
+          ]
+        : page === "ticket"
+          ? [
+              "Spiegami questo ticket",
+              "Qual è il piano remediation?",
+              "Che priorità ha?",
+              "Cosa manca per chiuderlo?",
+            ]
+          : page === "evidence"
+            ? [
+                "Riassumi queste evidenze",
+                "Che cosa dimostrano?",
+                "Quali dati mancano?",
+              ]
+            : undefined;
 
   useEffect(() => {
     const loadOperationsData = async () => {
@@ -118,6 +150,11 @@ export function AIAssistantPage() {
     return quickActionMessages[action] || action;
   };
 
+  const applyQuickAction = (action: string) => {
+    setQuickPrompt(handleQuickAction(action));
+    setQuickPromptKey((current) => current + 1);
+  };
+
   if (loading) {
     return <div className="text-sm text-slate-500">Caricamento AI Assistant...</div>;
   }
@@ -139,7 +176,13 @@ export function AIAssistantPage() {
             <h2 className="text-lg font-semibold text-slate-950">Chat con AI</h2>
           </div>
           <div className="h-[600px]">
-            <AIChat initialContext={initialContext} suggestedQuestions={suggestedQuestions} />
+            <AIChat
+              initialContext={initialContext}
+              suggestedQuestions={suggestedQuestions}
+              initialPrompt={promptParam ?? undefined}
+              externalPrompt={quickPrompt}
+              externalPromptKey={quickPromptKey}
+            />
           </div>
         </div>
       </div>
@@ -344,13 +387,7 @@ export function AIAssistantPage() {
             {quick_actions.map((action) => (
               <button
                 key={action.key}
-                onClick={() => {
-                  const input = document.querySelector('textarea[placeholder*="Scrivi un messaggio"]') as HTMLTextAreaElement;
-                  if (input) {
-                    input.value = handleQuickAction(action.key);
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                  }
-                }}
+                onClick={() => applyQuickAction(action.key)}
                 className="w-full rounded border border-slate-200 bg-slate-50 p-3 text-left text-sm font-medium text-slate-900 hover:bg-slate-100 transition-colors"
               >
                 {action.label}
@@ -401,7 +438,13 @@ export function AIAssistantPage() {
           <h2 className="text-lg font-semibold text-slate-950">Chat con AI</h2>
         </div>
         <div className="h-[600px]">
-          <AIChat initialContext={initialContext} suggestedQuestions={suggestedQuestions} />
+          <AIChat
+            initialContext={initialContext}
+            suggestedQuestions={suggestedQuestions}
+            initialPrompt={promptParam ?? undefined}
+            externalPrompt={quickPrompt}
+            externalPromptKey={quickPromptKey}
+          />
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import hashlib
+import json
 import logging
-from typing import Any
 
 import requests
 from django.core.cache import cache
@@ -52,10 +52,23 @@ class NvidiaNimProvider(AiProvider):
         if api_key in ("your_nvidia_api_key_here", "placeholder", "test"):
             raise AIProviderConfigurationError("NVIDIA_NIM_API_KEY is a placeholder value")
 
-    def _get_cache_key(self, messages: list[dict[str, str]], model: str) -> str:
+    def _get_cache_key(
+        self,
+        messages: list[dict[str, str]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
         """Generate stable cache key for request"""
-        key_data = f"{self.provider_name}:{model}:{str(messages)}"
-        return f"ai_response:{hashlib.sha256(key_data.encode()).hexdigest()}"
+        key_data = {
+            "provider": self.provider_name,
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        }
+        serialized_key_data = json.dumps(key_data, sort_keys=True, default=str)
+        return f"ai_response:{hashlib.sha256(serialized_key_data.encode()).hexdigest()}"
 
     def chat_completion(
         self,
@@ -73,7 +86,7 @@ class NvidiaNimProvider(AiProvider):
         temperature = temperature if temperature is not None else settings_dict["default_temperature"]
         max_tokens = max_tokens if max_tokens is not None else settings_dict["default_max_tokens"]
 
-        cache_key = self._get_cache_key(messages, model)
+        cache_key = self._get_cache_key(messages, model, temperature, max_tokens)
         cached_response = cache.get(cache_key)
 
         if cached_response:

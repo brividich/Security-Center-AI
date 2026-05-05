@@ -61,7 +61,7 @@ export interface AIProviderStatus {
   configured: boolean;
   model: string;
   fast_model: string;
-  base_url: string;
+  base_url_label: "default" | "custom" | "missing";
   api_key_present: boolean;
   api_key_label: "configured" | "missing" | "placeholder";
   status: "ok" | "warning" | "error" | "not_configured";
@@ -112,7 +112,7 @@ export interface AIOperationsSummary {
 export async function chatWithAI(
   message: string,
   history: ChatMessage[] = [],
-  context?: { object_type?: string; object_id?: string | number }
+  context?: { page?: string; object_type?: string; object_id?: string | number }
 ): Promise<{ message: string; model: string }> {
   return securityApiFetch<{ message: string; model: string }>("/api/security/ai/chat/", {
     method: "POST",
