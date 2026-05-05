@@ -1,8 +1,14 @@
-import os
-import requests
-from typing import Dict, List, Optional, Generator
-from django.core.cache import cache
+import hashlib
 import json
+import logging
+import os
+import re
+from typing import Dict, List, Optional, Generator
+
+import requests
+from django.core.cache import cache
+
+logger = logging.getLogger(__name__)
 
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -11,16 +17,44 @@ NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 CACHE_TIMEOUT = 3600  # 1 hour
 
 
+class AIProviderConfigurationError(Exception):
+    """Raised when AI provider is not properly configured"""
+    pass
+
+
 class NVIDIA_NIM_Service:
     def __init__(self):
         self.api_key = NVIDIA_API_KEY
         self.api_url = NVIDIA_API_URL
+
+    def _check_configuration(self):
+        """Check if the service is properly configured"""
+        if not self.api_key or not self.api_key.strip() or self.api_key == "your-api-key-here":
+            raise AIProviderConfigurationError("NVIDIA_API_KEY not configured")
 
     def _get_headers(self) -> Dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+
+    def _generate_cache_key(
+        self,
+        messages: List[Dict[str, str]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        """Generate a stable cache key using SHA256"""
+        key_data = {
+            "messages": messages,
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        key_string = json.dumps(key_data, sort_keys=True)
+        hash_obj = hashlib.sha256(key_string.encode())
+        return f"nim_chat:{hash_obj.hexdigest()}"
 
     def chat_completion(
         self,
@@ -31,7 +65,9 @@ class NVIDIA_NIM_Service:
         stream: bool = False,
     ) -> Dict:
         """Invia richiesta di chat completion a NVIDIA NIM"""
-        cache_key = f"nim_chat:{hash(json.dumps(messages))}"
+        self._check_configuration()
+
+        cache_key = self._generate_cache_key(messages, model, temperature, max_tokens)
         cached = cache.get(cache_key)
         if cached:
             return cached
@@ -44,17 +80,27 @@ class NVIDIA_NIM_Service:
             "stream": stream,
         }
 
-        response = requests.post(
-            self.api_url,
-            headers=self._get_headers(),
-            json=payload,
-            timeout=30,
-        )
-        response.raise_for_status()
+        try:
+            response = requests.post(
+                self.api_url,
+                headers=self._get_headers(),
+                json=payload,
+                timeout=120,
+            )
+            response.raise_for_status()
 
-        result = response.json()
-        cache.set(cache_key, result, CACHE_TIMEOUT)
-        return result
+            result = response.json()
+            cache.set(cache_key, result, CACHE_TIMEOUT)
+            return result
+        except requests.exceptions.Timeout:
+            logger.exception("NVIDIA API timeout")
+            raise Exception("AI service temporarily unavailable")
+        except requests.exceptions.HTTPError as e:
+            logger.exception(f"NVIDIA API HTTP error: {e.response.status_code}")
+            raise Exception("AI service temporarily unavailable")
+        except requests.exceptions.RequestException as e:
+            logger.exception("NVIDIA API request error")
+            raise Exception("AI service temporarily unavailable")
 
     def chat_completion_stream(
         self,
@@ -64,6 +110,8 @@ class NVIDIA_NIM_Service:
         max_tokens: int = 2048,
     ) -> Generator[str, None, None]:
         """Invia richiesta di chat completion con streaming"""
+        self._check_configuration()
+
         payload = {
             "model": model,
             "messages": messages,
@@ -72,26 +120,36 @@ class NVIDIA_NIM_Service:
             "stream": True,
         }
 
-        response = requests.post(
-            self.api_url,
-            headers=self._get_headers(),
-            json=payload,
-            stream=True,
-            timeout=30,
-        )
-        response.raise_for_status()
+        try:
+            response = requests.post(
+                self.api_url,
+                headers=self._get_headers(),
+                json=payload,
+                stream=True,
+                timeout=120,
+            )
+            response.raise_for_status()
 
-        for line in response.iter_lines():
-            if line:
-                try:
-                    data = json.loads(line.decode("utf-8").replace("data: ", ""))
-                    if "choices" in data and len(data["choices"]) > 0:
-                        delta = data["choices"][0].get("delta", {})
-                        content = delta.get("content", "")
-                        if content:
-                            yield content
-                except json.JSONDecodeError:
-                    continue
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        data = json.loads(line.decode("utf-8").replace("data: ", ""))
+                        if "choices" in data and len(data["choices"]) > 0:
+                            delta = data["choices"][0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                    except json.JSONDecodeError:
+                        continue
+        except requests.exceptions.Timeout:
+            logger.exception("NVIDIA API timeout")
+            raise Exception("AI service temporarily unavailable")
+        except requests.exceptions.HTTPError as e:
+            logger.exception(f"NVIDIA API HTTP error: {e.response.status_code}")
+            raise Exception("AI service temporarily unavailable")
+        except requests.exceptions.RequestException as e:
+            logger.exception("NVIDIA API request error")
+            raise Exception("AI service temporarily unavailable")
 
     def analyze_security_report(self, report_content: str) -> Dict:
         """Analizza un report di sicurezza"""
@@ -125,8 +183,18 @@ Rispondi in formato JSON con le seguenti chiavi:
 
         try:
             content = response["choices"][0]["message"]["content"]
+
+            # Estrai JSON dal contenuto
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+
+            # Pulisci caratteri di controllo non validi
+            content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
+
             return json.loads(content)
-        except (KeyError, json.JSONDecodeError):
+        except (KeyError, json.JSONDecodeError) as e:
+            logger.warning(f"Error parsing AI response: {e}")
             return {
                 "summary": "Impossibile analizzare il report",
                 "vulnerabilities": [],
@@ -163,8 +231,18 @@ Rispondi in formato JSON con le seguenti chiavi:
 
         try:
             content = response["choices"][0]["message"]["content"]
+
+            # Estrai JSON dal contenuto (potrebbe essere racchiuso in blocchi di codice markdown)
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+
+            # Pulisci caratteri di controllo non validi
+            content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
+
             return json.loads(content)
-        except (KeyError, json.JSONDecodeError):
+        except (KeyError, json.JSONDecodeError) as e:
+            logger.warning(f"Error parsing AI response: {e}")
             return {
                 "rule_name": "Regola generica",
                 "condition": "condizione generica",
@@ -207,8 +285,18 @@ Rispondi in formato JSON con le seguenti chiavi:
 
         try:
             content = response["choices"][0]["message"]["content"]
+
+            # Estrai JSON dal contenuto
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+
+            # Pulisci caratteri di controllo non validi
+            content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
+
             return json.loads(content)
-        except (KeyError, json.JSONDecodeError):
+        except (KeyError, json.JSONDecodeError) as e:
+            logger.warning(f"Error parsing AI response: {e}")
             return {
                 "patterns": [],
                 "anomalies": [],
@@ -241,6 +329,7 @@ Il riassunto deve essere in italiano, massimo 300 parole, e includere:
         try:
             return response["choices"][0]["message"]["content"]
         except KeyError:
+            logger.warning("Error extracting summary from AI response")
             return "Impossibile generare riassunto"
 
 

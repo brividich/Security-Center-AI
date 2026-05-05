@@ -1,5 +1,85 @@
 # Changelog
 
+## [0.7.4] - 2026-05-05
+
+### Added
+- Added AI provider abstraction layer with base provider interface and standardized response format.
+- Added AI Gateway service for provider selection and unified chat completion API.
+- Added NVIDIA NIM provider implementation with runtime settings loading.
+- Added `AiResponse` dataclass with content, provider, model, raw, and usage fields.
+- Added provider-specific exceptions: `AIProviderError`, `AIProviderConfigurationError`, `AIProviderUnavailableError`, `AIProviderResponseError`.
+- Added AI provider settings: `AI_PROVIDER`, `AI_DEFAULT_MODEL`, `AI_FAST_MODEL`, `AI_TEMPERATURE`, `AI_MAX_TOKENS`.
+- Added NVIDIA NIM settings: `NVIDIA_NIM_API_KEY`, `NVIDIA_NIM_BASE_URL`, `NVIDIA_NIM_CHAT_COMPLETIONS_PATH`.
+- Added `provider` field to AI chat API response.
+- Added AI Gateway tests for provider selection and default parameter handling.
+- Added NVIDIA NIM provider tests for settings loading and API key fallback.
+
+### Changed
+- Updated `security/api_ai.py` to use AI Gateway instead of direct NVIDIA service import.
+- Updated NVIDIA NIM provider to load settings at runtime for test compatibility.
+- Updated AI chat response to include `provider` field in addition to `message` and `model`.
+- Updated `.env.example` with AI provider configuration section and legacy `NVIDIA_API_KEY` note.
+- Updated AI integration tests to patch at correct import location and use new response format.
+- Maintained backward compatibility with `NVIDIA_API_KEY` as fallback for `NVIDIA_NIM_API_KEY`.
+
+### Security
+- AI provider abstraction prevents direct API key exposure in frontend responses.
+- Provider configuration errors return 503 status without exposing internal details.
+- Runtime settings loading prevents test environment contamination.
+- No real OpenAI or Azure OpenAI providers added in this patch.
+- No provider secrets stored in database in this patch.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests` - 320 tests OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `cd frontend && npm run build` - OK
+
+## [0.7.3] - 2026-05-04
+
+### Added
+- Added NVIDIA NIM AI integration for intelligent security report analysis and alert rule generation.
+- Added AI chat interface with conversation history and suggested questions.
+- Added AI-powered alert rule suggestion based on service descriptions.
+- Added AI report analysis for automatic vulnerability detection and recommendations.
+- Added AI event analysis for pattern detection and anomaly identification.
+- Added AI summary generation for data aggregation and reporting.
+- Added AI messages component with severity filtering and acknowledgment actions.
+- Added AI assistant page with chat, messages, and history tabs.
+- Added service configuration assistant for AI-powered rule generation.
+- Added AI assistant integration in Services page and Configuration rules tab.
+- Added NVIDIA API key configuration in `.env.example`.
+- Added JSON parser improvements for AI responses with markdown code block extraction.
+- Added control character cleaning for AI-generated JSON content.
+- Added timeout handling (120s) for NVIDIA API calls.
+- Added comprehensive error handling with user-friendly messages for AI endpoints.
+- Added input sanitization for AI chat history and content length limits.
+
+### Changed
+- Updated REST_FRAMEWORK settings to include JSONParser for AI endpoints.
+- Updated frontend navigation to include AI Assistant page.
+- Updated ConfigurationTabs to include AI tab and service configuration assistant.
+- Updated ServicesPage to include AI-powered configuration assistant.
+- Updated AI service to extract JSON from markdown code blocks automatically.
+- Updated AI service to clean control characters from JSON responses.
+- Updated AI API views with improved error handling and logging.
+- Updated AI API views to return 503 status for provider configuration errors.
+- Updated AI API views to return 503 status for temporary unavailability.
+
+### Security
+- NVIDIA API key is stored in environment variables only, never exposed in frontend.
+- AI chat history is sanitized and limited to 10 messages with 4000 character content limit.
+- AI message content is limited to 8000 characters.
+- AI endpoints require Security Center view permission.
+- No real tenant IDs, credentials, mailbox contents, hostnames, IPs, or operational reports were added.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `npm --prefix frontend run build` - OK, with existing Vite chunk-size warning
+- `git diff --check` for changed files - OK, with CRLF warnings only
+- Secret pattern scan of changed files - no actionable findings; NVIDIA_API_KEY placeholder is expected
+
 ## [0.7.2] - 2026-05-02
 
 ### Added

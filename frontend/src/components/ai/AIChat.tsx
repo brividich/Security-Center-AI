@@ -2,7 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import { chatWithAI, type ChatMessage } from "../../services/aiApi";
 import { Icon } from "../common/Icon";
 
-export function AIChat() {
+interface AIChatProps {
+  initialContext?: { object_type?: string; object_id?: string | number };
+  suggestedQuestions?: string[];
+}
+
+export function AIChat({ initialContext, suggestedQuestions: propSuggestedQuestions }: AIChatProps = {}) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: "Ciao! Sono l'assistente AI del Security Center. Come posso aiutarti oggi?" },
   ]);
@@ -28,7 +33,7 @@ export function AIChat() {
 
     try {
       const history = messages.slice(-10);
-      const response = await chatWithAI(userMessage, history);
+      const response = await chatWithAI(userMessage, history, initialContext);
       setMessages((prev) => [...prev, { role: "assistant", content: response.message }]);
     } catch (error) {
       setMessages((prev) => [
@@ -40,7 +45,7 @@ export function AIChat() {
     }
   };
 
-  const suggestedQuestions = [
+  const suggestedQuestions = propSuggestedQuestions ?? [
     "Analizza gli ultimi report di sicurezza",
     "Suggerisci una regola per rilevare accessi anomali",
     "Quali sono i rischi principali nel sistema?",

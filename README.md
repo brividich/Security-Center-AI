@@ -2,7 +2,96 @@
 
 Security Report Intelligence MVP built with Django, SQL Server support, Celery, Redis, Django admin, DRF read APIs, modular parsers, rule evaluation, deduplication, KPI snapshots, evidence containers, and remediation tickets.
 
-Current version: 0.7.2
+Current version: 0.7.4
+
+## AI Integration
+
+Security Center AI now includes NVIDIA NIM-powered AI capabilities with provider abstraction for intelligent security analysis and automation:
+
+- **AI Chat**: Conversational AI assistant for security analysis and guidance
+- **Alert Rule Suggestions**: AI-powered generation of alert rules based on service descriptions
+- **Report Analysis**: Automatic vulnerability detection and recommendations from security reports
+- **Event Analysis**: Pattern detection and anomaly identification in security events
+- **Summary Generation**: AI-powered data aggregation and reporting
+
+### AI Provider Architecture
+
+The AI integration uses a provider abstraction layer that supports multiple AI backends:
+
+```
+security/ai/
+├── providers/
+│   ├── base.py          # Base provider interface and response format
+│   └── nvidia_nim.py    # NVIDIA NIM provider implementation
+└── services/
+    └── ai_gateway.py    # Provider selection and unified API
+```
+
+**Current Provider**: NVIDIA NIM (Llama 3.1 models)
+
+**Future Providers** (planned):
+- OpenAI API
+- Azure OpenAI
+- Local LLM providers
+- Fallback provider support
+
+### AI Configuration
+
+Configure AI provider in `.env`:
+
+```env
+# AI Provider
+AI_PROVIDER=nvidia_nim
+AI_DEFAULT_MODEL=meta/llama-3.1-70b-instruct
+AI_FAST_MODEL=meta/llama-3.1-8b-instruct
+AI_TEMPERATURE=0.3
+AI_MAX_TOKENS=2048
+
+# NVIDIA NIM
+NVIDIA_NIM_API_KEY=your_nvidia_api_key_here
+NVIDIA_NIM_BASE_URL=https://integrate.api.nvidia.com/v1
+
+# Legacy fallback (NVIDIA_NIM_API_KEY takes precedence)
+NVIDIA_API_KEY=your_nvidia_api_key_here
+```
+
+Get your API key from: https://build.nvidia.com/
+
+### AI Features
+
+**AI Assistant Page** (`/ai`):
+- Chat interface with conversation history
+- Suggested questions for quick interaction
+- Real-time AI responses with streaming support
+- Messages panel with severity filtering
+- Analysis history and statistics
+
+**Service Configuration Assistant**:
+- Located in Services page and Configuration → Rules tab
+- Describe the service you want to monitor
+- AI generates appropriate alert rules automatically
+- Includes rule name, condition, severity, description, and recommended actions
+
+**AI API Endpoints**:
+- `POST /api/security/ai/chat/` - Chat with AI assistant (returns `message`, `model`, `provider`)
+- `POST /api/security/ai/suggest-alert-rule/` - Generate alert rule suggestions
+- `POST /api/security/ai/analyze-report/` - Analyze security reports
+- `POST /api/security/ai/analyze-events/` - Analyze security events
+- `POST /api/security/ai/generate-summary/` - Generate data summaries
+
+### AI Models
+
+- **Llama 3.1 70B Instruct**: Complex analysis, reasoning, and chat
+- **Llama 3.1 8B Instruct**: Quick suggestions, summaries, and real-time responses
+
+### AI Security
+
+- API keys stored in environment variables only, never exposed in frontend
+- Provider abstraction prevents direct API key exposure in responses
+- Configuration errors return 503 status without internal details
+- Chat history sanitized and limited to 10 messages with 4000 character content limit
+- Message content limited to 8000 characters
+- All AI endpoints require Security Center view permission
 
 ## React Control Center
 
@@ -90,10 +179,12 @@ Open `http://127.0.0.1:8000/` or `http://<PC-IP>:8000/` from the LAN. The backen
 The React Control Center is the primary operational workflow:
 
 - `/` dashboard with KPI distribution, source coverage, incoming data, recent alerts, and report activity.
+- `/ai` AI assistant with chat, messages, and analysis history.
 - `/configuration` source, rule, notification, suppression, and test configuration.
 - `/inbox` incoming mailbox/upload monitoring and parsing status.
 - `/reports` imported report review, filters, detail, pipeline state, and safe retry/reprocess actions.
 - `/integrations/microsoft-graph` Graph credential status, mailbox folder, and sync actions.
+- `/services` service status, polling Graph/mailbox, and AI-powered configuration assistant.
 
 Alert quick actions write `SecurityAlertActionLog` entries. Pipeline actions call the same services used by management commands and APIs.
 
@@ -110,6 +201,14 @@ Create or list sources at:
 
 - `GET /api/sources/`
 - `POST /api/sources/`
+
+AI endpoints:
+
+- `POST /api/security/ai/chat/` - Chat with AI assistant
+- `POST /api/security/ai/suggest-alert-rule/` - Generate alert rule suggestions
+- `POST /api/security/ai/analyze-report/` - Analyze security reports
+- `POST /api/security/ai/analyze-events/` - Analyze security events
+- `POST /api/security/ai/generate-summary/` - Generate data summaries
 
 Manual ingestion stubs:
 

@@ -20,6 +20,9 @@ from .api_ai import (
     AISuggestAlertRuleApiView,
     AIAnalyzeEventsApiView,
     AIGenerateSummaryApiView,
+    AIUsageSummaryApiView,
+    AIProviderStatusApiView,
+    AIOperationsSummaryApiView,
 )
 from .api_configuration import (
     ConfigurationOverviewApiView,
@@ -110,5 +113,8 @@ urlpatterns = [
     path("api/security/ai/suggest-alert-rule/", AISuggestAlertRuleApiView.as_view(), name="api_ai_suggest_alert_rule"),
     path("api/security/ai/analyze-events/", AIAnalyzeEventsApiView.as_view(), name="api_ai_analyze_events"),
     path("api/security/ai/generate-summary/", AIGenerateSummaryApiView.as_view(), name="api_ai_generate_summary"),
+    path("api/security/ai/usage-summary/", AIUsageSummaryApiView.as_view(), name="api_ai_usage_summary"),
+    path("api/security/ai/provider-status/", AIProviderStatusApiView.as_view(), name="api_ai_provider_status"),
+    path("api/security/ai/operations-summary/", AIOperationsSummaryApiView.as_view(), name="api_ai_operations_summary"),
     path("api/", include(router.urls)),
 ]
