@@ -187,6 +187,18 @@ CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:5173,h
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
 
+# AI Provider Configuration
+AI_PROVIDER = os.getenv("AI_PROVIDER", "nvidia_nim")
+AI_DEFAULT_MODEL = os.getenv("AI_DEFAULT_MODEL", "meta/llama-3.1-70b-instruct")
+AI_FAST_MODEL = os.getenv("AI_FAST_MODEL", "meta/llama-3.1-8b-instruct")
+AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0.3"))
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "2048"))
+
+# NVIDIA NIM Configuration
+NVIDIA_NIM_API_KEY = os.getenv("NVIDIA_NIM_API_KEY") or os.getenv("NVIDIA_API_KEY")
+NVIDIA_NIM_BASE_URL = os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+NVIDIA_NIM_CHAT_COMPLETIONS_PATH = os.getenv("NVIDIA_NIM_CHAT_COMPLETIONS_PATH", "/chat/completions")
+
 # Security headers
 SECURE_HSTS_SECONDS = 31536000  # 1 year
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True

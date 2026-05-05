@@ -683,3 +683,29 @@ class SecurityMailboxIngestionRun(models.Model):
 
     def __str__(self):
         return f"{self.source.name} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"
+
+
+class SecurityAiInteractionLog(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    action = models.CharField(max_length=80, db_index=True)
+    provider = models.CharField(max_length=80, blank=True)
+    model = models.CharField(max_length=160, blank=True)
+    status = models.CharField(max_length=32, db_index=True)
+    page = models.CharField(max_length=80, blank=True)
+    object_type = models.CharField(max_length=80, blank=True)
+    object_id = models.CharField(max_length=80, blank=True)
+    request_chars = models.PositiveIntegerField(default=0)
+    response_chars = models.PositiveIntegerField(default=0)
+    latency_ms = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["action", "created_at"]),
+            models.Index(fields=["status", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.action} - {self.status}"

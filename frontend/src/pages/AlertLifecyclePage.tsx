@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../components/common/Icon";
 import { SeverityBadge, toneForSeverity } from "../components/common/SeverityBadge";
+import { AIAssistButton } from "../components/ai/AIAssistButton";
 import { securityCenterApi } from "../services/api";
 import type { InboxItem, PageKey, Severity } from "../types/securityCenter";
 
@@ -200,6 +201,7 @@ function AlertDetailPanel({ alert, onNavigate }: { alert?: InboxItem; onNavigate
         <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50" onClick={() => onNavigate?.("evidence")}>
           Evidenze
         </button>
+        <AIAssistButton page="alert" objectType="alert" objectId={currentAlert.id} />
       </div>
 
       <div className="grid gap-5 p-5 lg:grid-cols-2">

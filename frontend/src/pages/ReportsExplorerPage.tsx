@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/common/Icon";
 import { SeverityBadge } from "../components/common/SeverityBadge";
+import { AIAssistButton } from "../components/ai/AIAssistButton";
 import { severityLabel } from "../data/uiLabels";
 import { securityCenterApi, type OverviewData } from "../services/api";
 import type { PageKey, PipelineStep, ReportItem } from "../types/securityCenter";
@@ -338,6 +339,7 @@ export function ReportsExplorerPage({ onNavigate }: { onNavigate?: (page: PageKe
                   <button type="button" onClick={() => onNavigate?.("inbox")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:col-span-2">
                     Vedi monitor ingressi
                   </button>
+                  <AIAssistButton page="report" objectType="report" objectId={selectedReport.id} label="Analizza con AI" />
                 </div>
               </div>
             ) : (
