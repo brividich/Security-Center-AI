@@ -201,7 +201,9 @@ function AlertDetailPanel({ alert, onNavigate }: { alert?: InboxItem; onNavigate
         <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50" onClick={() => onNavigate?.("evidence")}>
           Evidenze
         </button>
-        <AIAssistButton page="alert" objectType="alert" objectId={currentAlert.id} />
+        <AIAssistButton page="alert" objectType="alert" objectId={currentAlert.id} label="Spiega alert" prompt="Spiegami questo alert in dettaglio" />
+        <AIAssistButton page="alert" objectType="alert" objectId={currentAlert.id} label="Valuta gravità" prompt="Valuta la gravità di questo alert e spiegami perché" />
+        <AIAssistButton page="alert" objectType="alert" objectId={currentAlert.id} label="Prossime azioni" prompt="Suggerisci le prossime azioni da intraprendere per questo alert" />
       </div>
 
       <div className="grid gap-5 p-5 lg:grid-cols-2">
