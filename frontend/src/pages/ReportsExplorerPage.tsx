@@ -339,7 +339,9 @@ export function ReportsExplorerPage({ onNavigate }: { onNavigate?: (page: PageKe
                   <button type="button" onClick={() => onNavigate?.("inbox")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:col-span-2">
                     Vedi monitor ingressi
                   </button>
-                  <AIAssistButton page="report" objectType="report" objectId={selectedReport.id} label="Analizza con AI" />
+                  <AIAssistButton page="report" objectType="report" objectId={selectedReport.id} label="Riassumi report" prompt="Riassumi questo report in modo conciso" />
+                  <AIAssistButton page="report" objectType="report" objectId={selectedReport.id} label="Evidenzia anomalie" prompt="Evidenzia eventuali anomalie o problemi in questo report" />
+                  <AIAssistButton page="report" objectType="report" objectId={selectedReport.id} label="Suggerisci regole" prompt="Suggerisci regole alert basate su questo report" />
                 </div>
               </div>
             ) : (
