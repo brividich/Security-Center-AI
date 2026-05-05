@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import time
@@ -11,7 +12,12 @@ from rest_framework.views import APIView
 
 from .ai.services.ai_gateway import chat_completion
 from .ai.services.context_builder import build_ai_messages
-from .ai.providers.base import AIProviderConfigurationError
+from .ai.services.redaction import redact_ai_context, redact_list, redact_text
+from .ai.providers.base import (
+    AIProviderConfigurationError,
+    AIProviderResponseError,
+    AIProviderUnavailableError,
+)
 from .models import SecurityAiInteractionLog
 from .permissions import CanViewSecurityCenter
 
@@ -20,6 +26,81 @@ logger = logging.getLogger(__name__)
 MAX_MESSAGE_LENGTH = 8000
 MAX_HISTORY_MESSAGES = 10
 MAX_CONTENT_LENGTH = 4000
+MAX_SECONDARY_INPUT_CHARS = 20000
+MAX_LOG_ERROR_CHARS = 500
+MAX_STATUS_ERROR_CHARS = 200
+ALLOWED_CONTEXT_OBJECT_TYPES = {"dashboard", "alert", "report", "ticket", "evidence"}
+ALLOWED_CONTEXT_PAGES = {"dashboard", "alert", "report", "ticket", "evidence", "alerts", "reports", "ai", "overview"}
+
+
+def _truncate_text(value, max_length):
+    text = str(value or "")
+    return text[:max_length]
+
+
+def _sanitize_context_metadata(raw_context):
+    if not isinstance(raw_context, dict):
+        return {}
+
+    sanitized = {}
+    page = raw_context.get("page")
+    if isinstance(page, str):
+        page = page.strip().lower()[:80]
+        if page in ALLOWED_CONTEXT_PAGES:
+            sanitized["page"] = page
+
+    object_type = raw_context.get("object_type")
+    if isinstance(object_type, str):
+        object_type = object_type.strip().lower()[:80]
+        if object_type in ALLOWED_CONTEXT_OBJECT_TYPES:
+            sanitized["object_type"] = object_type
+
+    object_type = sanitized.get("object_type")
+    object_id = raw_context.get("object_id")
+    if object_type and object_type != "dashboard" and object_id is not None:
+        object_id = str(object_id).strip()[:80]
+        if object_type in {"alert", "report", "ticket"} and object_id.isdigit():
+            sanitized["object_id"] = object_id
+        elif object_type == "evidence" and re.match(r"^[0-9a-fA-F-]{1,80}$", object_id):
+            sanitized["object_id"] = object_id
+
+    return sanitized
+
+
+def _redacted_error_message(error):
+    return _truncate_text(redact_text(str(error)), MAX_LOG_ERROR_CHARS)
+
+
+def _redacted_payload_for_prompt(payload):
+    if isinstance(payload, str):
+        return _truncate_text(redact_text(payload), MAX_SECONDARY_INPUT_CHARS)
+    if isinstance(payload, dict):
+        redacted = redact_ai_context(payload)
+    elif isinstance(payload, list):
+        redacted = redact_list(payload)
+    else:
+        redacted = redact_text(str(payload))
+
+    if isinstance(redacted, str):
+        return _truncate_text(redacted, MAX_SECONDARY_INPUT_CHARS)
+    return _truncate_text(json.dumps(redacted, indent=2, ensure_ascii=False, default=str), MAX_SECONDARY_INPUT_CHARS)
+
+
+def _payload_too_large(payload) -> bool:
+    if isinstance(payload, str):
+        return len(payload) > MAX_SECONDARY_INPUT_CHARS
+    try:
+        serialized = json.dumps(payload, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        serialized = str(payload)
+    return len(serialized) > MAX_SECONDARY_INPUT_CHARS
+
+
+def _provider_base_url_label(base_url):
+    default_url = "https://integrate.api.nvidia.com/v1"
+    if not base_url:
+        return "missing"
+    return "default" if str(base_url).rstrip("/") == default_url else "custom"
 
 
 def sanitize_chat_history(history):
@@ -56,7 +137,7 @@ class AIChatApiView(APIView):
     def post(self, request):
         message = request.data.get("message", "")
         history = request.data.get("history", [])
-        context = request.data.get("context")
+        context = _sanitize_context_metadata(request.data.get("context"))
 
         # Validate message
         if not isinstance(message, str):
@@ -99,9 +180,9 @@ class AIChatApiView(APIView):
                 provider=response.provider,
                 model=response.model,
                 status="success",
-                page=context.get("page") if context else "",
-                object_type=context.get("object_type") if context else "",
-                object_id=str(context.get("object_id")) if context and context.get("object_id") else "",
+                page=context.get("page", ""),
+                object_type=context.get("object_type", ""),
+                object_id=context.get("object_id", ""),
                 request_chars=request_chars,
                 response_chars=response_chars,
                 latency_ms=latency_ms,
@@ -112,6 +193,23 @@ class AIChatApiView(APIView):
                 "model": response.model,
                 "provider": response.provider,
             })
+        except (AIProviderUnavailableError, AIProviderResponseError) as e:
+            latency_ms = int((time.time() - start_time) * 1000)
+            logger.warning("AI provider error during chat", extra={"error_class": e.__class__.__name__})
+
+            SecurityAiInteractionLog.objects.create(
+                user=request.user if request.user.is_authenticated else None,
+                action="chat",
+                status="provider_error",
+                page=context.get("page", ""),
+                object_type=context.get("object_type", ""),
+                object_id=context.get("object_id", ""),
+                request_chars=request_chars,
+                latency_ms=latency_ms,
+                error_message=_redacted_error_message(e.__class__.__name__),
+            )
+
+            return Response({"error": "AI service temporarily unavailable"}, status=503)
         except AIProviderConfigurationError:
             latency_ms = int((time.time() - start_time) * 1000)
             logger.warning("AI provider not configured")
@@ -121,28 +219,28 @@ class AIChatApiView(APIView):
                 user=request.user if request.user.is_authenticated else None,
                 action="chat",
                 status="config_error",
-                page=context.get("page") if context else "",
-                object_type=context.get("object_type") if context else "",
-                object_id=str(context.get("object_id")) if context and context.get("object_id") else "",
+                page=context.get("page", ""),
+                object_type=context.get("object_type", ""),
+                object_id=context.get("object_id", ""),
                 request_chars=request_chars,
                 latency_ms=latency_ms,
-                error_message="AI provider not configured",
+                error_message=_redacted_error_message("AI provider not configured"),
             )
 
             return Response({"error": "AI service not configured"}, status=503)
         except Exception as e:
             latency_ms = int((time.time() - start_time) * 1000)
-            error_msg = str(e)[:500]  # Truncate error message
-            logger.exception("Unexpected error in AI chat")
+            error_msg = _redacted_error_message(e)
+            logger.error("Unexpected error in AI chat", extra={"error_class": e.__class__.__name__})
 
             # Log error
             SecurityAiInteractionLog.objects.create(
                 user=request.user if request.user.is_authenticated else None,
                 action="chat",
                 status="error",
-                page=context.get("page") if context else "",
-                object_type=context.get("object_type") if context else "",
-                object_id=str(context.get("object_id")) if context and context.get("object_id") else "",
+                page=context.get("page", ""),
+                object_type=context.get("object_type", ""),
+                object_id=context.get("object_id", ""),
                 request_chars=request_chars,
                 latency_ms=latency_ms,
                 error_message=error_msg,
@@ -158,10 +256,11 @@ class AIAnalyzeReportApiView(APIView):
         report_id = request.data.get("report_id")
         report_content = request.data.get("content", "")
 
-        if not report_content:
+        if not isinstance(report_content, str) or not report_content.strip() or _payload_too_large(report_content):
             return Response({"error": "Invalid AI request"}, status=400)
 
         try:
+            redacted_report_content = _redacted_payload_for_prompt(report_content)
             system_prompt = """Sei un esperto di sicurezza informatica. Analizza il seguente report di sicurezza e fornisci:
 1. Riassunto esecutivo (max 200 parole)
 2. Vulnerabilità rilevate (CVE, severità, asset)
@@ -180,7 +279,7 @@ Rispondi in formato JSON con le seguenti chiavi:
 
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Analizza questo report:\n\n{report_content}"},
+                {"role": "user", "content": f"Analizza questo report:\n\n{redacted_report_content}"},
             ]
 
             response = chat_completion(
@@ -200,7 +299,6 @@ Rispondi in formato JSON con le seguenti chiavi:
             # Pulisci caratteri di controllo non validi
             content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
 
-            import json
             analysis = json.loads(content)
 
             return Response({
@@ -210,8 +308,11 @@ Rispondi in formato JSON con le seguenti chiavi:
         except AIProviderConfigurationError:
             logger.warning("AI provider not configured")
             return Response({"error": "AI service not configured"}, status=503)
+        except (AIProviderUnavailableError, AIProviderResponseError) as e:
+            logger.warning("AI provider error during report analysis", extra={"error_class": e.__class__.__name__})
+            return Response({"error": "AI service temporarily unavailable"}, status=503)
         except Exception as e:
-            logger.exception("Unexpected error in AI report analysis")
+            logger.error("Unexpected error in AI report analysis", extra={"error_class": e.__class__.__name__})
             return Response({"error": "AI service temporarily unavailable"}, status=503)
 
 
@@ -221,10 +322,11 @@ class AISuggestAlertRuleApiView(APIView):
     def post(self, request):
         context = request.data.get("context", "")
 
-        if not context:
+        if not isinstance(context, str) or not context.strip() or _payload_too_large(context):
             return Response({"error": "Invalid AI request"}, status=400)
 
         try:
+            redacted_context = _redacted_payload_for_prompt(context)
             system_prompt = """Sei un esperto di sicurezza informatica. Basandoti sul contesto fornito, suggerisci una regola di alert appropriata.
 
 Rispondi in formato JSON con le seguenti chiavi:
@@ -239,7 +341,7 @@ Rispondi in formato JSON con le seguenti chiavi:
 
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Contesto:\n\n{context}"},
+                {"role": "user", "content": f"Contesto:\n\n{redacted_context}"},
             ]
 
             response = chat_completion(
@@ -259,7 +361,6 @@ Rispondi in formato JSON con le seguenti chiavi:
             # Pulisci caratteri di controllo non validi
             content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
 
-            import json
             suggestion = json.loads(content)
 
             return Response({
@@ -268,8 +369,11 @@ Rispondi in formato JSON con le seguenti chiavi:
         except AIProviderConfigurationError:
             logger.warning("AI provider not configured")
             return Response({"error": "AI service not configured"}, status=503)
+        except (AIProviderUnavailableError, AIProviderResponseError) as e:
+            logger.warning("AI provider error during alert rule suggestion", extra={"error_class": e.__class__.__name__})
+            return Response({"error": "AI service temporarily unavailable"}, status=503)
         except Exception as e:
-            logger.exception("Unexpected error in AI alert rule suggestion")
+            logger.error("Unexpected error in AI alert rule suggestion", extra={"error_class": e.__class__.__name__})
             return Response({"error": "AI service temporarily unavailable"}, status=503)
 
 
@@ -279,10 +383,11 @@ class AIAnalyzeEventsApiView(APIView):
     def post(self, request):
         events = request.data.get("events", [])
 
-        if not events:
+        if not isinstance(events, (dict, list)) or not events or _payload_too_large(events):
             return Response({"error": "Invalid AI request"}, status=400)
 
         try:
+            redacted_events_json = _redacted_payload_for_prompt(events)
             system_prompt = """Sei un esperto di sicurezza informatica. Analizza la seguente serie di eventi e fornisci:
 1. Pattern rilevati
 2. Eventi anomali
@@ -299,11 +404,9 @@ Rispondi in formato JSON con le seguenti chiavi:
   "recommendations": ["raccomandazione 1", "raccomandazione 2"]
 }"""
 
-            import json
-            events_json = json.dumps(events, indent=2)
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Eventi:\n\n{events_json}"},
+                {"role": "user", "content": f"Eventi:\n\n{redacted_events_json}"},
             ]
 
             response = chat_completion(
@@ -331,8 +434,11 @@ Rispondi in formato JSON con le seguenti chiavi:
         except AIProviderConfigurationError:
             logger.warning("AI provider not configured")
             return Response({"error": "AI service not configured"}, status=503)
+        except (AIProviderUnavailableError, AIProviderResponseError) as e:
+            logger.warning("AI provider error during events analysis", extra={"error_class": e.__class__.__name__})
+            return Response({"error": "AI service temporarily unavailable"}, status=503)
         except Exception as e:
-            logger.exception("Unexpected error in AI events analysis")
+            logger.error("Unexpected error in AI events analysis", extra={"error_class": e.__class__.__name__})
             return Response({"error": "AI service temporarily unavailable"}, status=503)
 
 
@@ -342,21 +448,20 @@ class AIGenerateSummaryApiView(APIView):
     def post(self, request):
         data = request.data.get("data", {})
 
-        if not data:
+        if not isinstance(data, (dict, list)) or not data or _payload_too_large(data):
             return Response({"error": "Invalid AI request"}, status=400)
 
         try:
+            redacted_data_json = _redacted_payload_for_prompt(data)
             system_prompt = """Sei un esperto di sicurezza informatica. Genera un riassunto conciso e informativo dei dati forniti.
 Il riassunto deve essere in italiano, massimo 300 parole, e includere:
 - Punti chiave
 - Metriche importanti
 - Raccomandazioni principali"""
 
-            import json
-            data_json = json.dumps(data, indent=2)
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Dati:\n\n{data_json}"},
+                {"role": "user", "content": f"Dati:\n\n{redacted_data_json}"},
             ]
 
             response = chat_completion(
@@ -374,8 +479,11 @@ Il riassunto deve essere in italiano, massimo 300 parole, e includere:
         except AIProviderConfigurationError:
             logger.warning("AI provider not configured")
             return Response({"error": "AI service not configured"}, status=503)
+        except (AIProviderUnavailableError, AIProviderResponseError) as e:
+            logger.warning("AI provider error during summary generation", extra={"error_class": e.__class__.__name__})
+            return Response({"error": "AI service temporarily unavailable"}, status=503)
         except Exception as e:
-            logger.exception("Unexpected error in AI summary generation")
+            logger.error("Unexpected error in AI summary generation", extra={"error_class": e.__class__.__name__})
             return Response({"error": "AI service temporarily unavailable"}, status=503)
 
 
@@ -443,6 +551,7 @@ class AIProviderStatusApiView(APIView):
                 api_key = getattr(settings, "NVIDIA_API_KEY", None)
 
             base_url = getattr(settings, "NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+            base_url_label = _provider_base_url_label(base_url)
             default_model = getattr(settings, "AI_DEFAULT_MODEL", "meta/llama-3.1-70b-instruct")
             fast_model = getattr(settings, "AI_FAST_MODEL", "meta/llama-3.1-8b-instruct")
 
@@ -488,14 +597,14 @@ class AIProviderStatusApiView(APIView):
             # Redact/truncate error message
             last_error_message = ""
             if last_error and last_error.error_message:
-                last_error_message = last_error.error_message[:200]
+                last_error_message = _truncate_text(redact_text(last_error.error_message), MAX_STATUS_ERROR_CHARS)
 
             return Response({
                 "provider": "nvidia_nim",
                 "configured": configured,
                 "model": default_model,
                 "fast_model": fast_model,
-                "base_url": base_url,
+                "base_url_label": base_url_label,
                 "api_key_present": api_key_present,
                 "api_key_label": api_key_label,
                 "status": provider_status,
@@ -524,6 +633,7 @@ class AIOperationsSummaryApiView(APIView):
                 api_key = getattr(settings, "NVIDIA_API_KEY", None)
 
             base_url = getattr(settings, "NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+            base_url_label = _provider_base_url_label(base_url)
             default_model = getattr(settings, "AI_DEFAULT_MODEL", "meta/llama-3.1-70b-instruct")
             fast_model = getattr(settings, "AI_FAST_MODEL", "meta/llama-3.1-8b-instruct")
 
@@ -573,14 +683,14 @@ class AIOperationsSummaryApiView(APIView):
 
             last_error_message = ""
             if last_error and last_error.error_message:
-                last_error_message = last_error.error_message[:200]
+                last_error_message = _truncate_text(redact_text(last_error.error_message), MAX_STATUS_ERROR_CHARS)
 
             provider_status_data = {
                 "provider": "nvidia_nim",
                 "configured": configured,
                 "model": default_model,
                 "fast_model": fast_model,
-                "base_url": base_url,
+                "base_url_label": base_url_label,
                 "api_key_present": api_key_present,
                 "api_key_label": api_key_label,
                 "status": provider_status,

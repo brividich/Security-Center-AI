@@ -62,9 +62,38 @@ SENSITIVE_FIELDS = {
     "gcpkey",
 }
 
+SENSITIVE_KEY_FRAGMENTS = (
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "token",
+    "api_key",
+    "api-key",
+    "apikey",
+    "client_secret",
+    "clientsecret",
+    "authorization",
+    "credential",
+    "webhook",
+    "connection",
+    "connstr",
+    "private_key",
+    "privatekey",
+    "sharedaccesskey",
+    "accountkey",
+)
+
 SENSITIVE_PATTERNS = [
     r"Bearer\s+[A-Za-z0-9\-._~+/]+=*",
     r"Basic\s+[A-Za-z0-9\-._~+/]+=*",
+    r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b",  # JWT
+    r"\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",  # JWT-like
+    r"https?://[^/\s:@]+:[^/\s:@]+@[^\s]+",  # URLs with embedded credentials
+    r"https?://[^\s]*(?:webhook|hooks\.slack(?:\.com)?|teams\.microsoft|outlook\.office|logic\.azure|powerautomate)[^\s]*",
+    r"(?:Password|AccountKey|SharedAccessKey|Secret)\s*=\s*[^;,\s]+",
+    r"(?:token|api[_-]?key|secret|password)\s*[:=]\s*[A-Za-z0-9_\-./+=]{12,}",
+    r"\b(?:xox[baprs]-|gh[pousr]_|glpat-|ya29\.|sk_live-|sk_test-|sk-)[A-Za-z0-9_\-\.]{16,}\b",
     r"[A-Za-z0-9]{32,}",  # Long alphanumeric strings (likely tokens)
     r"sk-[a-zA-Z0-9]{32,}",  # OpenAI-style keys
     r"pk-[a-zA-Z0-9]{32,}",  # Stripe public keys
@@ -163,6 +192,12 @@ def redact_text(text: str) -> str:
     return redacted
 
 
+def is_sensitive_key(key: str) -> bool:
+    """Return True when a dictionary key likely names a secret value."""
+    key_lower = str(key).lower()
+    return key_lower in SENSITIVE_FIELDS or any(fragment in key_lower for fragment in SENSITIVE_KEY_FRAGMENTS)
+
+
 def redact_dict(data: Dict[str, Any], preserve_structure: bool = True) -> Dict[str, Any]:
     """Redact sensitive fields from dictionary"""
     if not isinstance(data, dict):
@@ -173,7 +208,7 @@ def redact_dict(data: Dict[str, Any], preserve_structure: bool = True) -> Dict[s
     for key, value in data.items():
         key_lower = key.lower()
 
-        if key_lower in SENSITIVE_FIELDS:
+        if is_sensitive_key(key_lower):
             if preserve_structure:
                 redacted[key] = "[REDACTED]"
             continue
@@ -220,7 +255,7 @@ def redact_ai_context(context: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in context.items():
         key_lower = key.lower()
 
-        if key_lower in SENSITIVE_FIELDS:
+        if is_sensitive_key(key_lower):
             redacted[key] = "[REDACTED]"
         elif key_lower in USEFUL_FIELDS:
             if isinstance(value, dict):

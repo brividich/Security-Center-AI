@@ -3,11 +3,20 @@ import { chatWithAI, type ChatMessage } from "../../services/aiApi";
 import { Icon } from "../common/Icon";
 
 interface AIChatProps {
-  initialContext?: { object_type?: string; object_id?: string | number };
+  initialContext?: { page?: string; object_type?: string; object_id?: string | number };
   suggestedQuestions?: string[];
+  initialPrompt?: string;
+  externalPrompt?: string;
+  externalPromptKey?: number;
 }
 
-export function AIChat({ initialContext, suggestedQuestions: propSuggestedQuestions }: AIChatProps = {}) {
+export function AIChat({
+  initialContext,
+  suggestedQuestions: propSuggestedQuestions,
+  initialPrompt,
+  externalPrompt,
+  externalPromptKey,
+}: AIChatProps = {}) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: "Ciao! Sono l'assistente AI del Security Center. Come posso aiutarti oggi?" },
   ]);
@@ -22,6 +31,18 @@ export function AIChat({ initialContext, suggestedQuestions: propSuggestedQuesti
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    if (initialPrompt?.trim()) {
+      setInput(initialPrompt);
+    }
+  }, [initialPrompt]);
+
+  useEffect(() => {
+    if (externalPrompt?.trim()) {
+      setInput(externalPrompt);
+    }
+  }, [externalPrompt, externalPromptKey]);
 
   const handleSendMessage = async () => {
     if (!input.trim() || loading) return;

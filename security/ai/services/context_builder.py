@@ -15,7 +15,9 @@ from ...models import (
     SecurityEvidenceItem,
     SecurityRemediationTicket,
     SecurityReport,
+    SecurityVulnerabilityFinding,
 )
+from ...permissions import can_view_security_center
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,8 @@ MAX_HISTORY_MESSAGES = 10
 MAX_CONTENT_LENGTH = 4000
 
 CONTEXT_DIR = Path(__file__).parent.parent / "context"
+ALLOWED_OBJECT_TYPES = {"dashboard", "alert", "report", "ticket", "evidence"}
+SAFE_UNAVAILABLE_CONTEXT = {"error": "requested object not found or unavailable"}
 
 
 def load_context_file(filename: str) -> str:
@@ -93,7 +97,8 @@ def get_alert_context(alert_id: int) -> Dict[str, Any]:
                 "event_type": alert.event.event_type,
                 "severity": alert.event.severity,
                 "payload": alert.event.payload,
-                "parsed_at": alert.event.parsed_at.isoformat() if alert.event.parsed_at else None,
+                "occurred_at": alert.event.occurred_at.isoformat() if alert.event.occurred_at else None,
+                "created_at": alert.event.created_at.isoformat() if alert.event.created_at else None,
             }
 
         evidence_containers = []
@@ -159,7 +164,7 @@ def get_report_context(report_id: int) -> Dict[str, Any]:
     """Get context for SecurityReport"""
     try:
         report = SecurityReport.objects.select_related("source", "mailbox_message", "source_file").prefetch_related(
-            "metrics", "vulnerability_findings"
+            "metrics"
         ).get(id=report_id)
 
         context = {
@@ -188,14 +193,22 @@ def get_report_context(report_id: int) -> Dict[str, Any]:
         context["metrics"] = metrics
 
         vulnerabilities = []
-        for vuln in report.vulnerability_findings.all()[:20]:
+        vulnerability_findings = (
+            SecurityVulnerabilityFinding.objects.select_related("asset")
+            .filter(report=report)
+            .order_by("-last_seen_at")[:20]
+        )
+        for vuln in vulnerability_findings:
             vulnerabilities.append(
                 {
                     "cve": vuln.cve,
                     "severity": vuln.severity,
-                    "cvss_score": vuln.cvss_score,
-                    "affected_asset": vuln.affected_asset.hostname if vuln.affected_asset else None,
-                    "description": vuln.description,
+                    "status": vuln.status,
+                    "cvss": vuln.cvss,
+                    "asset": vuln.asset.hostname if vuln.asset else None,
+                    "affected_product": vuln.affected_product,
+                    "exposed_devices": vuln.exposed_devices,
+                    "payload": vuln.payload,
                 }
             )
         context["vulnerabilities"] = vulnerabilities
@@ -384,34 +397,75 @@ def get_dashboard_context() -> Dict[str, Any]:
         return {"error": "error retrieving dashboard context"}
 
 
-def get_runtime_context(runtime_context: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _can_access_context(user: User, object_type: str) -> bool:
+    if object_type == "dashboard":
+        return can_view_security_center(user)
+    if object_type == "alert":
+        return user.has_perm("security.view_securityalert") or user.is_staff
+    if object_type == "report":
+        return user.has_perm("security.view_securityreport") or user.is_staff
+    if object_type == "ticket":
+        return (
+            user.has_perm("security.view_securityremediationticket")
+            or user.is_staff
+            or user.has_perm("security.manage_security_configuration")
+        )
+    if object_type == "evidence":
+        return (
+            user.has_perm("security.view_securityevidencecontainer")
+            or user.is_staff
+            or user.has_perm("security.manage_security_configuration")
+        )
+    return False
+
+
+def _parse_numeric_object_id(object_id: Any) -> Optional[int]:
+    try:
+        if isinstance(object_id, str) and not object_id.strip().isdigit():
+            return None
+        parsed = int(object_id)
+    except (ValueError, TypeError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def get_runtime_context(user: User, runtime_context: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Get runtime context based on object_type and object_id"""
-    if not runtime_context:
+    if not isinstance(runtime_context, dict) or not runtime_context:
         return None
 
     object_type = runtime_context.get("object_type")
     object_id = runtime_context.get("object_id")
 
-    if not object_type:
-        return None
+    if object_type not in ALLOWED_OBJECT_TYPES:
+        logger.warning("Unknown or disallowed AI context object_type")
+        return SAFE_UNAVAILABLE_CONTEXT
 
-    try:
-        if object_type == "alert" and object_id:
-            return get_alert_context(int(object_id))
-        elif object_type == "report" and object_id:
-            return get_report_context(int(object_id))
-        elif object_type == "ticket" and object_id:
-            return get_ticket_context(int(object_id))
-        elif object_type == "evidence" and object_id:
-            return get_evidence_context(str(object_id))
-        elif object_type == "dashboard":
-            return get_dashboard_context()
-        else:
-            logger.warning(f"Unknown object_type: {object_type}")
-            return None
-    except (ValueError, TypeError) as e:
-        logger.warning(f"Invalid object_id for {object_type}: {e}")
-        return None
+    if not _can_access_context(user, object_type):
+        logger.warning("User is not authorized for requested AI context", extra={"object_type": object_type})
+        return SAFE_UNAVAILABLE_CONTEXT
+
+    if object_type == "dashboard":
+        return get_dashboard_context()
+
+    if not object_id:
+        return SAFE_UNAVAILABLE_CONTEXT
+
+    if object_type in {"alert", "report", "ticket"}:
+        parsed_id = _parse_numeric_object_id(object_id)
+        if parsed_id is None:
+            logger.warning("Invalid AI context object_id", extra={"object_type": object_type})
+            return SAFE_UNAVAILABLE_CONTEXT
+        if object_type == "alert":
+            return get_alert_context(parsed_id)
+        if object_type == "report":
+            return get_report_context(parsed_id)
+        return get_ticket_context(parsed_id)
+
+    if object_type == "evidence":
+        return get_evidence_context(str(object_id)[:80])
+
+    return SAFE_UNAVAILABLE_CONTEXT
 
 
 def build_ai_messages(
@@ -467,7 +521,7 @@ def build_ai_messages(
     messages.extend(sanitized_history)
 
     if runtime_context:
-        context_data = get_runtime_context(runtime_context)
+        context_data = get_runtime_context(user, runtime_context)
         if context_data:
             redacted_context = redact_ai_context(context_data)
             messages.append({"role": "system", "content": f"Context: {redacted_context}"})

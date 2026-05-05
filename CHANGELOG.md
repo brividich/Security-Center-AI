@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.7.5] - 2026-05-05
+
+### Changed
+- Updated current project and frontend package metadata to version `0.7.5`.
+- Updated AI Assistant quick actions to prefill chat input through React state instead of direct DOM manipulation.
+- Updated AI provider status payloads to expose `base_url_label` instead of the full provider base URL.
+
+### Fixed
+- Fixed AI context builder alert context to use `SecurityEventRecord.occurred_at` and `created_at` instead of the nonexistent `parsed_at` field.
+- Fixed report context vulnerability loading to query `SecurityVulnerabilityFinding` by `report` and use real model fields.
+- Fixed NVIDIA NIM cache keys to include model, temperature, max tokens, and JSON-normalized messages.
+- Fixed provider unavailable and response errors to log as `provider_error` while returning a generic frontend message.
+
+### Security
+- Added whitelist validation for AI chat context metadata before audit logging or context lookup.
+- Added model-level permission checks before building alert, report, ticket, evidence, or dashboard AI context.
+- Added generic unavailable context responses for unauthorized or invalid context requests without revealing object existence.
+- Redacted secondary AI endpoint inputs before provider calls and rejected invalid or oversized payloads.
+- Redacted stored AI error messages and provider status error summaries.
+- Strengthened AI redaction for compound sensitive keys, JWT-like tokens, credentialed URLs, connection-string secrets, webhook URLs, and common token prefixes.
+- Kept AI operations summaries free of full prompts, full responses, full provider URLs, API keys, tokens, and secrets.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests.test_ai_integration` - 82 tests OK
+- `python manage.py test security.tests` - 368 tests OK
+- `python manage.py test` - 368 tests OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `cd frontend && npm run build` - OK, with existing Vite chunk-size warning
+
 ## [0.7.4] - 2026-05-05
 
 ### Added

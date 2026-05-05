@@ -2,8 +2,9 @@ import json
 import os
 from unittest.mock import Mock, patch
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Permission, User
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 from rest_framework import status
 
@@ -18,11 +19,26 @@ from security.api_ai import (
     AISuggestAlertRuleApiView,
     AIAnalyzeEventsApiView,
     AIGenerateSummaryApiView,
+    AIProviderStatusApiView,
+    AIOperationsSummaryApiView,
     sanitize_chat_history,
 )
 from security.ai.providers.base import (
     AIProviderConfigurationError,
+    AIProviderResponseError,
+    AIProviderUnavailableError,
     AiResponse,
+)
+from security.models import (
+    SecurityAiInteractionLog,
+    SecurityAlert,
+    SecurityAsset,
+    SecurityEventRecord,
+    SecurityEvidenceContainer,
+    SecurityRemediationTicket,
+    SecurityReport,
+    SecuritySource,
+    SecurityVulnerabilityFinding,
 )
 from security.services.nvidia_nim_service import (
     AIProviderConfigurationError as LegacyAIProviderConfigurationError,
@@ -175,6 +191,122 @@ class TestAIChatApiView(TestCase):
         self.assertEqual(response.data["error"], "AI service temporarily unavailable")
 
     @patch("security.api_ai.chat_completion")
+    def test_provider_error_logged_without_exposing_detail(self, mock_chat):
+        """Provider failures should be logged generically as provider_error"""
+        mock_chat.side_effect = AIProviderUnavailableError("provider detail should stay internal")
+        response = self._make_authenticated_request({
+            "message": "hello",
+            "history": [],
+            "context": {"page": "alert", "object_type": "alert", "object_id": 42},
+        })
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["error"], "AI service temporarily unavailable")
+
+        log = SecurityAiInteractionLog.objects.get()
+        self.assertEqual(log.status, "provider_error")
+        self.assertEqual(log.page, "alert")
+        self.assertEqual(log.object_type, "alert")
+        self.assertEqual(log.object_id, "42")
+        self.assertEqual(log.error_message, "AIProviderUnavailableError")
+        self.assertNotIn("provider detail", log.error_message)
+
+    @patch("security.api_ai.chat_completion")
+    def test_provider_response_error_logged_as_provider_error(self, mock_chat):
+        """Malformed provider responses should use the provider_error status"""
+        mock_chat.side_effect = AIProviderResponseError("invalid provider payload detail")
+        response = self._make_authenticated_request({"message": "hello", "history": []})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["error"], "AI service temporarily unavailable")
+        self.assertEqual(SecurityAiInteractionLog.objects.get().status, "provider_error")
+
+    @patch("security.api_ai.chat_completion")
+    def test_non_dict_context_is_ignored_without_500(self, mock_chat):
+        """String/list context payloads should not break chat or log metadata"""
+        mock_chat.return_value = AiResponse(
+            content="AI response",
+            provider="nvidia_nim",
+            model="meta/llama-3.1-70b-instruct",
+        )
+
+        for context in ["not a dict", ["alert", 1], None]:
+            with self.subTest(context=context):
+                SecurityAiInteractionLog.objects.all().delete()
+                response = self._make_authenticated_request({"message": "hello", "history": [], "context": context})
+                self.assertEqual(response.status_code, 200)
+                log = SecurityAiInteractionLog.objects.get()
+                self.assertEqual(log.page, "")
+                self.assertEqual(log.object_type, "")
+                self.assertEqual(log.object_id, "")
+
+    @patch("security.api_ai.chat_completion")
+    def test_invalid_context_metadata_is_not_logged(self, mock_chat):
+        """Only whitelisted context metadata should be saved in audit logs"""
+        mock_chat.return_value = AiResponse(
+            content="AI response",
+            provider="nvidia_nim",
+            model="meta/llama-3.1-70b-instruct",
+        )
+
+        response = self._make_authenticated_request({
+            "message": "hello",
+            "history": [],
+            "context": {
+                "page": "admin-secret-page",
+                "object_type": "not_allowed",
+                "object_id": "secret-token-value",
+                "api_key": "sk-redacted-placeholder",
+            },
+        })
+
+        self.assertEqual(response.status_code, 200)
+        log = SecurityAiInteractionLog.objects.get()
+        self.assertEqual(log.page, "")
+        self.assertEqual(log.object_type, "")
+        self.assertEqual(log.object_id, "")
+
+    @patch("security.api_ai.chat_completion")
+    def test_requested_context_pages_are_whitelisted(self, mock_chat):
+        """Only the approved short page labels should be saved from client context"""
+        mock_chat.return_value = AiResponse(
+            content="AI response",
+            provider="nvidia_nim",
+            model="meta/llama-3.1-70b-instruct",
+        )
+
+        for page in ["dashboard", "alert", "report", "ticket", "evidence", "alerts", "reports", "ai", "overview"]:
+            with self.subTest(page=page):
+                SecurityAiInteractionLog.objects.all().delete()
+                response = self._make_authenticated_request({
+                    "message": "hello",
+                    "history": [],
+                    "context": {"page": page, "extra_secret": "sk-redacted-placeholder"},
+                })
+
+                self.assertEqual(response.status_code, 200)
+                log = SecurityAiInteractionLog.objects.get()
+                self.assertEqual(log.page, page)
+                self.assertEqual(log.object_type, "")
+                self.assertEqual(log.object_id, "")
+
+    @patch("security.api_ai.chat_completion")
+    def test_unexpected_error_log_is_redacted(self, mock_chat):
+        """Unexpected error messages should be redacted before audit storage"""
+        mock_chat.side_effect = Exception(
+            "failure Bearer ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 Password=ExampleSecret123"
+        )
+
+        response = self._make_authenticated_request({"message": "hello", "history": []})
+
+        self.assertEqual(response.status_code, 503)
+        log = SecurityAiInteractionLog.objects.get()
+        self.assertEqual(log.status, "error")
+        self.assertIn("[REDACTED]", log.error_message)
+        self.assertNotIn("ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890", log.error_message)
+        self.assertNotIn("ExampleSecret123", log.error_message)
+
+    @patch("security.api_ai.chat_completion")
     def test_history_sanitized(self, mock_chat):
         """History should be sanitized before use"""
         mock_chat.return_value = AiResponse(
@@ -217,6 +349,14 @@ class TestAIAnalyzeReportApiView(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"], "Invalid AI request")
 
+    def test_non_string_or_too_large_content_returns_400(self):
+        """Report analysis accepts only bounded string content"""
+        for content in [{"nested": "value"}, ["report"], None, "a" * 20001]:
+            with self.subTest(content_type=type(content).__name__):
+                response = self._make_authenticated_request({"content": content})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.data["error"], "Invalid AI request")
+
     @patch("security.api_ai.chat_completion")
     def test_provider_not_configured_returns_503(self, mock_chat):
         """Provider not configured should return 503"""
@@ -236,6 +376,31 @@ class TestAIAnalyzeReportApiView(TestCase):
         response = self._make_authenticated_request({"content": "report content"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["analysis"]["summary"], "Test summary")
+
+    @patch("security.api_ai.chat_completion")
+    def test_report_content_is_redacted_before_gateway(self, mock_chat):
+        """Report analysis must not send raw tokens, webhooks, or connection strings"""
+        mock_chat.return_value = AiResponse(
+            content='{"summary": "Test summary", "vulnerabilities": [], "recommendations": [], "risks": [], "suggested_actions": []}',
+            provider="nvidia_nim",
+            model="meta/llama-3.1-70b-instruct",
+        )
+
+        response = self._make_authenticated_request({
+            "content": (
+                "Token Bearer ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 "
+                "Webhook https://example.com/webhook/services/secret-token "
+                "Connection Server=example.local;Password=ExampleSecret123;"
+            )
+        })
+
+        self.assertEqual(response.status_code, 200)
+        messages = mock_chat.call_args[1]["messages"]
+        user_content = messages[-1]["content"]
+        self.assertIn("[REDACTED]", user_content)
+        self.assertNotIn("ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890", user_content)
+        self.assertNotIn("secret-token", user_content)
+        self.assertNotIn("ExampleSecret123", user_content)
 
 
 class TestAISuggestAlertRuleApiView(TestCase):
@@ -258,6 +423,14 @@ class TestAISuggestAlertRuleApiView(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"], "Invalid AI request")
 
+    def test_non_string_or_too_large_context_returns_400(self):
+        """Rule suggestion accepts only bounded string context"""
+        for context in [{"nested": "value"}, ["context"], None, "a" * 20001]:
+            with self.subTest(context_type=type(context).__name__):
+                response = self._make_authenticated_request({"context": context})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.data["error"], "Invalid AI request")
+
     @patch("security.api_ai.chat_completion")
     def test_provider_not_configured_returns_503(self, mock_chat):
         """Provider not configured should return 503"""
@@ -265,6 +438,25 @@ class TestAISuggestAlertRuleApiView(TestCase):
         response = self._make_authenticated_request({"context": "context"})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data["error"], "AI service not configured")
+
+    @patch("security.api_ai.chat_completion")
+    def test_context_is_redacted_before_gateway(self, mock_chat):
+        """Rule suggestions must redact raw context before sending it to the provider"""
+        mock_chat.return_value = AiResponse(
+            content='{"rule_name": "Example", "condition": "severity == high", "severity": "high", "description": "desc", "recommended_actions": [], "rationale": "why"}',
+            provider="nvidia_nim",
+            model="meta/llama-3.1-8b-instruct",
+        )
+
+        response = self._make_authenticated_request({
+            "context": "Slack token xoxb-abcdefghijklmnopqrstuvwxyz123456 and webhook https://example.com/webhook/hook-secret"
+        })
+
+        self.assertEqual(response.status_code, 200)
+        user_content = mock_chat.call_args[1]["messages"][-1]["content"]
+        self.assertIn("[REDACTED]", user_content)
+        self.assertNotIn("xoxb-abcdefghijklmnopqrstuvwxyz123456", user_content)
+        self.assertNotIn("hook-secret", user_content)
 
 
 class TestAIAnalyzeEventsApiView(TestCase):
@@ -287,6 +479,14 @@ class TestAIAnalyzeEventsApiView(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"], "Invalid AI request")
 
+    def test_invalid_or_too_large_events_returns_400(self):
+        """Event analysis accepts only bounded dict/list payloads"""
+        for events in ["raw events", 123, None, {"payload": "a" * 20001}]:
+            with self.subTest(events_type=type(events).__name__):
+                response = self._make_authenticated_request({"events": events})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.data["error"], "Invalid AI request")
+
     @patch("security.api_ai.chat_completion")
     def test_provider_not_configured_returns_503(self, mock_chat):
         """Provider not configured should return 503"""
@@ -294,6 +494,53 @@ class TestAIAnalyzeEventsApiView(TestCase):
         response = self._make_authenticated_request({"events": [{"id": 1}]})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data["error"], "AI service not configured")
+
+    @patch("security.api_ai.chat_completion")
+    def test_events_are_redacted_before_gateway(self, mock_chat):
+        """Event payloads should be recursively redacted before provider calls"""
+        mock_chat.return_value = AiResponse(
+            content='{"patterns": [], "anomalies": [], "correlations": [], "potential_threats": [], "recommendations": []}',
+            provider="nvidia_nim",
+            model="meta/llama-3.1-70b-instruct",
+        )
+
+        response = self._make_authenticated_request({
+            "events": [
+                {
+                    "id": "evt-1",
+                    "severity": "high",
+                    "payload": {"authorization": "Bearer ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"},
+                }
+            ]
+        })
+
+        self.assertEqual(response.status_code, 200)
+        user_content = mock_chat.call_args[1]["messages"][-1]["content"]
+        self.assertIn("[REDACTED]", user_content)
+        self.assertIn('"severity": "high"', user_content)
+        self.assertNotIn("ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890", user_content)
+
+    @patch("security.api_ai.chat_completion")
+    def test_event_dict_is_redacted_before_gateway(self, mock_chat):
+        """Event analysis should also accept and redact dict payloads"""
+        mock_chat.return_value = AiResponse(
+            content='{"patterns": [], "anomalies": [], "correlations": [], "potential_threats": [], "recommendations": []}',
+            provider="nvidia_nim",
+            model="meta/llama-3.1-70b-instruct",
+        )
+
+        response = self._make_authenticated_request({
+            "events": {
+                "severity": "critical",
+                "graph_client_secret": "ExampleSecret123",
+            }
+        })
+
+        self.assertEqual(response.status_code, 200)
+        user_content = mock_chat.call_args[1]["messages"][-1]["content"]
+        self.assertIn("[REDACTED]", user_content)
+        self.assertIn('"severity": "critical"', user_content)
+        self.assertNotIn("ExampleSecret123", user_content)
 
 
 class TestAIGenerateSummaryApiView(TestCase):
@@ -316,6 +563,14 @@ class TestAIGenerateSummaryApiView(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"], "Invalid AI request")
 
+    def test_invalid_or_too_large_data_returns_400(self):
+        """Summary generation accepts only bounded dict/list payloads"""
+        for data in ["raw data", 123, None, {"payload": "a" * 20001}]:
+            with self.subTest(data_type=type(data).__name__):
+                response = self._make_authenticated_request({"data": data})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.data["error"], "Invalid AI request")
+
     @patch("security.api_ai.chat_completion")
     def test_provider_not_configured_returns_503(self, mock_chat):
         """Provider not configured should return 503"""
@@ -323,6 +578,187 @@ class TestAIGenerateSummaryApiView(TestCase):
         response = self._make_authenticated_request({"data": {"key": "value"}})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data["error"], "AI service not configured")
+
+    @patch("security.api_ai.chat_completion")
+    def test_dict_and_list_data_is_redacted_before_gateway(self, mock_chat):
+        """Summary payloads should be recursively redacted before provider calls"""
+        mock_chat.return_value = AiResponse(
+            content="Sintesi sicura",
+            provider="nvidia_nim",
+            model="meta/llama-3.1-8b-instruct",
+        )
+
+        response = self._make_authenticated_request({
+            "data": {
+                "items": [
+                    {
+                        "severity": "high",
+                        "connection_string": "Server=example.local;Password=ExampleSecret123;",
+                    }
+                ],
+                "nested_token": "ghp_abcdefghijklmnopqrstuvwxyz123456",
+            }
+        })
+
+        self.assertEqual(response.status_code, 200)
+        user_content = mock_chat.call_args[1]["messages"][-1]["content"]
+        self.assertIn("[REDACTED]", user_content)
+        self.assertIn('"severity": "high"', user_content)
+        self.assertNotIn("ExampleSecret123", user_content)
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyz123456", user_content)
+
+    @patch("security.api_ai.chat_completion")
+    def test_list_data_is_redacted_before_gateway(self, mock_chat):
+        """Summary generation should accept and redact list payloads"""
+        mock_chat.return_value = AiResponse(
+            content="Sintesi sicura",
+            provider="nvidia_nim",
+            model="meta/llama-3.1-8b-instruct",
+        )
+
+        response = self._make_authenticated_request({
+            "data": [
+                {
+                    "status": "open",
+                    "teams_webhook_url": "https://example.com/webhook/secret-path",
+                }
+            ]
+        })
+
+        self.assertEqual(response.status_code, 200)
+        user_content = mock_chat.call_args[1]["messages"][-1]["content"]
+        self.assertIn("[REDACTED]", user_content)
+        self.assertIn('"status": "open"', user_content)
+        self.assertNotIn("secret-path", user_content)
+
+
+class TestAIStatusEndpoints(TestCase):
+    """Test AI operational status endpoints avoid secret exposure"""
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = User.objects.create_user(username="testuser", password="testpass", is_staff=True)
+
+    def _get_authenticated_response(self, view_class):
+        request = self.factory.get("/api/security/ai/status/")
+        force_authenticate(request, user=self.user)
+        return view_class.as_view()(request)
+
+    @override_settings(
+        NVIDIA_NIM_API_KEY="placeholder",
+        NVIDIA_NIM_BASE_URL="https://ai-provider.example.local/v1",
+    )
+    def test_provider_status_does_not_expose_base_url_or_secret_error(self):
+        SecurityAiInteractionLog.objects.create(
+            user=self.user,
+            action="chat",
+            status="provider_error",
+            error_message="Webhook https://example.com/webhook/secret-path Password=ExampleSecret123",
+        )
+
+        response = self._get_authenticated_response(AIProviderStatusApiView)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.data
+        self.assertNotIn("base_url", data)
+        self.assertEqual(data["base_url_label"], "custom")
+        serialized = json.dumps(data)
+        self.assertNotIn("ai-provider.example.local", serialized)
+        self.assertNotIn("secret-path", serialized)
+        self.assertNotIn("ExampleSecret123", serialized)
+        self.assertIn("[REDACTED]", data["last_error_message"])
+
+    @override_settings(
+        NVIDIA_NIM_API_KEY="placeholder",
+        NVIDIA_NIM_BASE_URL="https://ai-provider.example.local/v1",
+    )
+    def test_operations_summary_does_not_expose_base_url_or_secret_error(self):
+        SecurityAiInteractionLog.objects.create(
+            user=self.user,
+            action="chat",
+            status="provider_error",
+            error_message="Connection Server=example.local;Password=ExampleSecret123;",
+        )
+
+        response = self._get_authenticated_response(AIOperationsSummaryApiView)
+
+        self.assertEqual(response.status_code, 200)
+        provider_status = response.data["provider_status"]
+        self.assertNotIn("base_url", provider_status)
+        self.assertEqual(provider_status["base_url_label"], "custom")
+        serialized = json.dumps(response.data)
+        self.assertNotIn("ai-provider.example.local", serialized)
+        self.assertNotIn("ExampleSecret123", serialized)
+        self.assertIn("[REDACTED]", provider_status["last_error_message"])
+
+    @override_settings(
+        NVIDIA_NIM_API_KEY=None,
+        NVIDIA_API_KEY=None,
+        NVIDIA_NIM_BASE_URL=None,
+    )
+    def test_provider_status_labels_missing_base_url(self):
+        response = self._get_authenticated_response(AIProviderStatusApiView)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["base_url_label"], "missing")
+        self.assertNotIn("base_url", response.data)
+
+
+class TestAIRedactionService(TestCase):
+    """Test AI redaction helpers for secret-like values"""
+
+    def test_redact_text_masks_jwt_webhook_connection_string_and_credentials_url(self):
+        from security.ai.services.redaction import redact_text
+
+        raw_text = (
+            "jwt aaaaaaaaaa.bbbbbbbbbb.cccccccccc "
+            "webhook https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnopqrstuvwxyz "
+            "url https://user1:ExampleSecret123@example.com/redacted "
+            "conn Server=example.local;Password=ExampleSecret123;AccountKey=abcdefghijklmnopqrstuvwxyz123456;Secret=HiddenSecret12345;"
+        )
+
+        redacted = redact_text(raw_text)
+
+        self.assertIn("[REDACTED]", redacted)
+        self.assertNotIn("aaaaaaaaaa.bbbbbbbbbb.cccccccccc", redacted)
+        self.assertNotIn("hooks.slack.com/services", redacted)
+        self.assertNotIn("user1:ExampleSecret123", redacted)
+        self.assertNotIn("ExampleSecret123", redacted)
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", redacted)
+        self.assertNotIn("HiddenSecret12345", redacted)
+
+    def test_redact_dict_masks_compound_sensitive_keys(self):
+        from security.ai.services.redaction import redact_dict
+
+        payload = {
+            "graph_client_secret": "ExampleSecret123",
+            "teams_webhook_url": "https://example.com/webhook/secret-path",
+            "db_connection_string": "Server=example.local;Password=ExampleSecret123;",
+            "nested": {"custom_api_token_value": "token-redacted-placeholder"},
+            "cve": "CVE-2099-0001",
+            "cvss": 9.8,
+            "severity": "critical",
+            "status": "open",
+            "affected_product": "Example Product",
+            "exposed_devices": 2,
+            "parser_name": "example_parser",
+            "source_type": "email",
+        }
+
+        redacted = redact_dict(payload)
+
+        self.assertEqual(redacted["graph_client_secret"], "[REDACTED]")
+        self.assertEqual(redacted["teams_webhook_url"], "[REDACTED]")
+        self.assertEqual(redacted["db_connection_string"], "[REDACTED]")
+        self.assertEqual(redacted["nested"]["custom_api_token_value"], "[REDACTED]")
+        self.assertEqual(redacted["cve"], "CVE-2099-0001")
+        self.assertEqual(redacted["cvss"], 9.8)
+        self.assertEqual(redacted["severity"], "critical")
+        self.assertEqual(redacted["status"], "open")
+        self.assertEqual(redacted["affected_product"], "Example Product")
+        self.assertEqual(redacted["exposed_devices"], 2)
+        self.assertEqual(redacted["parser_name"], "example_parser")
+        self.assertEqual(redacted["source_type"], "email")
 
 
 class TestNvidiaNimServiceCacheKey(TestCase):
@@ -523,6 +959,30 @@ class TestNvidiaNimProvider(TestCase):
             with self.assertRaises(AIProviderConfigurationError):
                 provider.chat_completion([{"role": "user", "content": "test"}])
 
+    def test_cache_key_includes_temperature_and_max_tokens(self):
+        """Provider cache key should vary with generation parameters"""
+        from security.ai.providers.nvidia_nim import NvidiaNimProvider
+
+        provider = NvidiaNimProvider()
+        messages = [{"role": "user", "content": "test"}]
+
+        base_key = provider._get_cache_key(messages, "model", 0.3, 2048)
+        temperature_key = provider._get_cache_key(messages, "model", 0.7, 2048)
+        max_tokens_key = provider._get_cache_key(messages, "model", 0.3, 1024)
+
+        self.assertNotEqual(base_key, temperature_key)
+        self.assertNotEqual(base_key, max_tokens_key)
+
+    def test_cache_key_sorts_message_json_keys(self):
+        """Provider cache key should be stable for equivalent message JSON"""
+        from security.ai.providers.nvidia_nim import NvidiaNimProvider
+
+        provider = NvidiaNimProvider()
+        key1 = provider._get_cache_key([{"role": "user", "content": "test"}], "model", 0.3, 2048)
+        key2 = provider._get_cache_key([{"content": "test", "role": "user"}], "model", 0.3, 2048)
+
+        self.assertEqual(key1, key2)
+
 
 class TestContextBuilder(TestCase):
     """Test context builder service"""
@@ -662,6 +1122,93 @@ class TestContextBuilder(TestCase):
         context_messages = [msg for msg in messages if "Context:" in msg.get("content", "")]
         self.assertGreater(len(context_messages), 0)
 
+    def test_alert_context_includes_event_occurred_at_and_payload(self):
+        """Alert context should use real event timestamp fields"""
+        from security.ai.services.context_builder import get_alert_context
+
+        source = SecuritySource.objects.create(
+            name="Example Source",
+            vendor="Example Vendor",
+            source_type="email",
+        )
+        occurred_at = timezone.now()
+        event = SecurityEventRecord.objects.create(
+            source=source,
+            event_type="example.alert",
+            severity="high",
+            occurred_at=occurred_at,
+            fingerprint="example-alert-fingerprint",
+            dedup_hash="example-alert-dedup",
+            payload={"host": "EXAMPLE-HOST", "ip": "192.0.2.10"},
+        )
+        alert = SecurityAlert.objects.create(
+            source=source,
+            event=event,
+            title="Example alert",
+            severity="high",
+            dedup_hash="example-alert-hash",
+        )
+
+        context = get_alert_context(alert.id)
+
+        self.assertNotIn("error", context)
+        self.assertEqual(context["event"]["payload"], {"host": "EXAMPLE-HOST", "ip": "192.0.2.10"})
+        self.assertEqual(context["event"]["occurred_at"], occurred_at.isoformat())
+        self.assertIn("created_at", context["event"])
+        self.assertNotIn("parsed_at", context["event"])
+
+    def test_report_context_includes_vulnerability_findings(self):
+        """Report context should query vulnerability findings with real model fields"""
+        from security.ai.services.context_builder import get_report_context
+
+        source = SecuritySource.objects.create(
+            name="Example Defender Source",
+            vendor="Example Vendor",
+            source_type="email",
+        )
+        report = SecurityReport.objects.create(
+            source=source,
+            report_type="defender_vulnerability",
+            title="Example Defender report",
+            parser_name="example_parser",
+        )
+        asset = SecurityAsset.objects.create(
+            source=source,
+            hostname="EXAMPLE-HOST",
+            ip_address="192.0.2.10",
+            asset_type="workstation",
+        )
+        SecurityVulnerabilityFinding.objects.create(
+            source=source,
+            report=report,
+            asset=asset,
+            cve="CVE-2099-0001",
+            affected_product="Example Product",
+            cvss=9.8,
+            exposed_devices=3,
+            severity="critical",
+            status="open",
+            dedup_hash="example-vuln-dedup",
+            payload={"recommendation": "Use the synthetic remediation plan"},
+        )
+
+        context = get_report_context(report.id)
+
+        self.assertNotIn("error", context)
+        self.assertEqual(len(context["vulnerabilities"]), 1)
+        vulnerability = context["vulnerabilities"][0]
+        self.assertEqual(vulnerability["cve"], "CVE-2099-0001")
+        self.assertEqual(vulnerability["severity"], "critical")
+        self.assertEqual(vulnerability["status"], "open")
+        self.assertEqual(vulnerability["cvss"], 9.8)
+        self.assertEqual(vulnerability["asset"], "EXAMPLE-HOST")
+        self.assertEqual(vulnerability["affected_product"], "Example Product")
+        self.assertEqual(vulnerability["exposed_devices"], 3)
+        self.assertEqual(vulnerability["payload"], {"recommendation": "Use the synthetic remediation plan"})
+        self.assertNotIn("cvss_score", vulnerability)
+        self.assertNotIn("affected_asset", vulnerability)
+        self.assertNotIn("description", vulnerability)
+
     def test_build_ai_messages_with_invalid_object_type(self):
         """AI messages should handle invalid object_type gracefully"""
         from security.ai.services.context_builder import build_ai_messages
@@ -671,14 +1218,145 @@ class TestContextBuilder(TestCase):
             "object_id": "123",
         }
 
-        messages = build_ai_messages(
-            user=self.user,
-            user_message="test message",
-            runtime_context=runtime_context,
-        )
+        with patch("security.ai.services.context_builder.get_alert_context") as mock_get_alert_context:
+            messages = build_ai_messages(
+                user=self.user,
+                user_message="test message",
+                runtime_context=runtime_context,
+            )
 
         # Should not crash and should still have messages
         self.assertGreater(len(messages), 0)
+        mock_get_alert_context.assert_not_called()
+        context_messages = [msg for msg in messages if "Context:" in msg.get("content", "")]
+        self.assertEqual(len(context_messages), 1)
+        self.assertIn("not found or unavailable", context_messages[0]["content"])
+
+    def test_build_ai_messages_with_invalid_object_id_returns_safe_context(self):
+        """Invalid object IDs should not leak lookup or parsing details"""
+        from security.ai.services.context_builder import build_ai_messages
+
+        messages = build_ai_messages(
+            user=self.user,
+            user_message="test message",
+            runtime_context={"object_type": "alert", "object_id": "not-a-number"},
+        )
+
+        context_messages = [msg for msg in messages if "Context:" in msg.get("content", "")]
+        self.assertEqual(len(context_messages), 1)
+        self.assertIn("not found or unavailable", context_messages[0]["content"])
+
+    def test_user_without_permission_does_not_receive_sensitive_context(self):
+        """Users without minimum context permissions should only receive a safe unavailable context"""
+        from security.ai.services.context_builder import build_ai_messages
+
+        user = User.objects.create_user(username="limiteduser", password="testpass", is_staff=False)
+
+        with patch("security.ai.services.context_builder.get_ticket_context") as mock_get_ticket_context:
+            messages = build_ai_messages(
+                user=user,
+                user_message="test message",
+                runtime_context={"object_type": "ticket", "object_id": "1"},
+            )
+
+        mock_get_ticket_context.assert_not_called()
+        context_messages = [msg for msg in messages if "Context:" in msg.get("content", "")]
+        self.assertEqual(len(context_messages), 1)
+        self.assertIn("not found or unavailable", context_messages[0]["content"])
+
+    def test_user_without_specific_permissions_gets_generic_context_for_all_objects(self):
+        """Unauthorized object contexts should not reveal whether an object exists"""
+        from security.ai.services.context_builder import build_ai_messages
+
+        limited_user = User.objects.create_user(username="limited-context-user", password="testpass", is_staff=False)
+        source = SecuritySource.objects.create(
+            name="Example Permission Source",
+            vendor="Example Vendor",
+            source_type="email",
+        )
+        event = SecurityEventRecord.objects.create(
+            source=source,
+            event_type="example.permission",
+            severity="high",
+            fingerprint="permission-fingerprint",
+            dedup_hash="permission-event-dedup",
+            payload={"host": "EXAMPLE-HOST"},
+        )
+        alert = SecurityAlert.objects.create(
+            source=source,
+            event=event,
+            title="Hidden Example Alert",
+            severity="high",
+            dedup_hash="permission-alert-dedup",
+        )
+        report = SecurityReport.objects.create(
+            source=source,
+            report_type="example_report",
+            title="Hidden Example Report",
+            parser_name="example_parser",
+        )
+        evidence = SecurityEvidenceContainer.objects.create(
+            source=source,
+            alert=alert,
+            title="Hidden Example Evidence",
+        )
+        ticket = SecurityRemediationTicket.objects.create(
+            source=source,
+            alert=alert,
+            title="Hidden Example Ticket",
+            severity="high",
+            dedup_hash="permission-ticket-dedup",
+        )
+
+        contexts = [
+            {"object_type": "alert", "object_id": str(alert.id), "hidden": "Hidden Example Alert"},
+            {"object_type": "report", "object_id": str(report.id), "hidden": "Hidden Example Report"},
+            {"object_type": "ticket", "object_id": str(ticket.id), "hidden": "Hidden Example Ticket"},
+            {"object_type": "evidence", "object_id": str(evidence.id), "hidden": "Hidden Example Evidence"},
+        ]
+
+        for runtime_context in contexts:
+            with self.subTest(object_type=runtime_context["object_type"]):
+                messages = build_ai_messages(
+                    user=limited_user,
+                    user_message="test message",
+                    runtime_context={
+                        "object_type": runtime_context["object_type"],
+                        "object_id": runtime_context["object_id"],
+                    },
+                )
+                context_messages = [msg for msg in messages if "Context:" in msg.get("content", "")]
+                self.assertEqual(len(context_messages), 1)
+                self.assertIn("not found or unavailable", context_messages[0]["content"])
+                self.assertNotIn(runtime_context["hidden"], context_messages[0]["content"])
+
+    def test_user_with_specific_alert_permission_can_receive_alert_context(self):
+        """Object context access should allow explicit view permission or staff"""
+        from security.ai.services.context_builder import build_ai_messages
+
+        user = User.objects.create_user(username="alert-view-user", password="testpass", is_staff=False)
+        user.user_permissions.add(Permission.objects.get(codename="view_securityalert"))
+        source = SecuritySource.objects.create(
+            name="Example Alert Permission Source",
+            vendor="Example Vendor",
+            source_type="email",
+        )
+        alert = SecurityAlert.objects.create(
+            source=source,
+            title="Visible Example Alert",
+            severity="high",
+            dedup_hash="visible-alert-dedup",
+        )
+
+        messages = build_ai_messages(
+            user=user,
+            user_message="test message",
+            runtime_context={"object_type": "alert", "object_id": str(alert.id)},
+        )
+
+        context_messages = [msg for msg in messages if "Context:" in msg.get("content", "")]
+        self.assertEqual(len(context_messages), 1)
+        self.assertIn("Visible Example Alert", context_messages[0]["content"])
 
     def test_build_ai_messages_with_nonexistent_object(self):
         """AI messages should handle nonexistent object gracefully"""
