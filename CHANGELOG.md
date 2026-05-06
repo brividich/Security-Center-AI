@@ -1,5 +1,281 @@
 # Changelog
 
+## [0.11.2] - 2026-05-06
+
+Patch identifiers: AI-MEMORY-02C, AI-MEMORY-SEC-01, AI-DOC-01
+
+### Added
+- Added AI-MEMORY-SEC-01 memory API hardening with rate limiting, insufficiency flags validation, source redaction, and source references sanitization.
+- Added AI-DOC-01 documentation alignment for AI patch identifiers, tracker metadata, AI Memory docs, retrieval docs, evaluation docs, and roadmap references.
+
+### Security
+- Added explain mode hardening: `score_components` only exposed to users with `manage_security_configuration` permission or staff.
+- Removed `snippet` from public API payload to reduce information leakage.
+- Enhanced prompt injection detection to include "override", "override system", and "override prompt" patterns.
+- Added rate limiting to `AIMemoryIndexApiView` POST endpoint (default: 10 requests/minute per user, configurable via `SECURITY_AI_MEMORY_INDEX_RATE`).
+- Added whitelist validation for `insufficiency_flags` in API responses to prevent exposure of arbitrary flags.
+- Added redaction to `source` field in `AIMemoryFact` creation to prevent storage of emails, IPs, tokens, and URLs.
+- Added source references sanitization for non-manager users to hide document IDs, titles, and other sensitive metadata.
+- Added email and IP address patterns to redaction service for enhanced data protection.
+- Added permission tests for memory endpoints (AIMemoryIndexApiView, AIMemoryFactsApiView).
+- Added explain mode tests to verify `score_components` exposure is properly controlled.
+- Added insufficient evidence flag tests to verify proper flagging and messaging.
+- Added report context + memory context integration tests to verify coexistence and safety rules.
+
+### Changed
+- Updated `_memory_context_response_payload()` to check user permissions before exposing `score_components`.
+- Updated `_memory_context_response_payload` to accept `user` parameter for source references sanitization.
+- Updated all API views that use `_memory_context_response_payload` to pass the user parameter.
+- Updated `_looks_unsupported_claim_request()` to detect additional prompt injection patterns.
+- Updated frontend TypeScript types to support both string and object source_references.
+- Updated frontend AIChat component to display sanitized source references with fallback labels.
+- Unified score component naming: `source_object_affinity_boost` → `context_affinity_boost` for consistency.
+- Added safe pgvector warning logging when `store_pgvector_embedding()` returns False.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests.test_ai_memory` - 50 tests OK (15 new security/cleanup tests added)
+- `python manage.py test security.tests.test_ai_integration` - 166 tests OK (4 new integration tests added)
+- `python manage.py test security.tests` - 588 tests OK
+- `python manage.py test` - 588 tests OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `npm run build` from `frontend/` - OK, with existing Vite chunk-size warning
+- `git diff --check` - OK, line-ending warnings only
+
+## [0.11.1] - 2026-05-06
+
+Patch identifier: AI-MEMORY-03
+
+### Added
+- Added AI-MEMORY-03 retrieval evaluation services with a versioned synthetic Security Center corpus, stable evaluation cases, hit@k, MRR, precision@k, recall@k, insufficiency, safety, and latency metrics.
+- Added `evaluate_ai_memory_retrieval` management command for `hybrid_keyword`, `vector_json_fallback`, and `hybrid_pgvector` benchmark runs with text/JSON safe reports and threshold failure options.
+- Added prompt-injection retrieval safety benchmarks that block malicious instruction-shaped queries and keep command reports free of raw prompts, snippets, and secret-like placeholders.
+- Added documentation for retrieval quality evaluation and pgvector/provider comparison workflows.
+
+### Changed
+- Updated current project and frontend package metadata to version `0.11.1`.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests.test_ai_memory_evaluation` - 12 tests OK
+- `python manage.py test security.tests.test_ai_memory` - 35 tests OK
+- `python manage.py test security.tests.test_ai_integration` - 162 tests OK
+- `python manage.py test security.tests` - 569 tests OK
+- `python manage.py test` - 569 tests OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `python manage.py evaluate_ai_memory_retrieval --format text` - OK, 10/10 cases passed
+- `python manage.py evaluate_ai_memory_retrieval --format json` - OK, 10/10 cases passed
+- `npm run build` from `frontend/` - OK, with existing Vite chunk-size warning
+- `git diff --check` - OK, line-ending warnings only
+
+## [0.11.0] - 2026-05-06
+
+Patch identifier: AI-MEMORY-02
+
+### Added
+- Added AI-MEMORY-02 semantic retrieval services with query normalization, explainable hybrid keyword scoring, deterministic local embeddings, JSON cosine fallback, optional pgvector backend detection, and retrieval diagnostics.
+- Added `AIKnowledgeEmbedding` portable embedding storage and `rebuild_ai_memory_index` management command.
+- Added AI Memory API metadata for retrieval mode/backend, pgvector availability, embeddings usage, citations, source counts, insufficiency flags, and explain-only score components.
+- Added frontend display of retrieval mode and pgvector fallback warnings in the AI chat metadata panel.
+- Added documentation for hybrid keyword, pgvector, and hybrid pgvector modes.
+
+### Changed
+- Updated current project and frontend package metadata to version `0.11.0`.
+
+### Security
+- Added prompt-injection guard language that treats retrieved reports, emails, evidence, and knowledge documents as untrusted data.
+- Preserved no-evidence/no-invention behavior with granular insufficiency flags.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests.test_ai_memory` - 35 tests OK
+- `python manage.py test security.tests.test_ai_integration` - 162 tests OK
+- `python manage.py test security.tests` - 557 tests OK
+- `python manage.py test` - 557 tests OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `npm run build` from `frontend/` - OK, with existing Vite chunk-size warning
+- `git diff --check` - OK, line-ending warnings only
+
+## [0.10.0] - 2026-05-06
+
+Patch identifier: AI-MEMORY-01
+
+### Added
+- Added persistent AI Memory models for knowledge documents, chunks, approved memory facts, conversations, and conversation messages.
+- Added internal AI Memory services for chunking, document indexing, keyword retrieval, approved-memory policy, citation building, and stable prompt context construction.
+- Added protected AI Memory APIs for document indexing, memory facts, alert explanation, evidence summarization, and remediation plans.
+- Added `seed_ai_memory` management command for approved synthetic operational memory facts.
+- Added frontend chat metadata for internal memory use, source references, and insufficient-evidence warnings.
+- Added AI Memory documentation in `README.md`, `docs/AI_ASSISTANT.md`, and `docs/security-center/12_AI_MEMORY.md`.
+
+### Changed
+- Updated current project and frontend package metadata to version `0.10.0`.
+- AI chat prompt construction now includes the internal AI Memory context package and no-evidence/no-invention rules.
+- Long redacted report body previews preserve the existing truncation indicator contract.
+- AI Memory diagnostic checks now use the standard diagnostics `code` schema.
+- AI knowledge embedding index names now stay within Django's index-name length limit.
+
+### Security
+- Unapproved memory facts are not used as authoritative memory.
+- AI Memory prompts carry insufficiency flags and require the assistant to avoid invented Security Center facts when evidence is missing.
+- AI Memory indexing redacts text before persistence through the API and does not require external provider calls.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests.test_ai_memory` - 22 tests OK
+- `python manage.py test security.tests.test_ai_integration` - 162 tests OK
+- `python manage.py test security.tests` - 557 tests OK
+- `python manage.py test` - 557 tests OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `npm run build` from `frontend/` - OK, with existing Vite chunk-size warning
+
+## [0.9.2] - 2026-05-06
+
+### Added
+- Added configurable AI request timeout via `AI_REQUEST_TIMEOUT_SECONDS` (default: 20s).
+- Added configurable AI request retries via `AI_REQUEST_RETRIES` (default: 0, max 3).
+- Added configurable AI retry backoff via `AI_RETRY_BACKOFF_SECONDS` (default: 1s).
+- Added AI speed model configuration via `AI_SPEED_MODEL` (default: meta/llama-3.2-1b-instruct).
+- Added AI complex model configuration via `AI_COMPLEX_MODEL` (default: AI_DEFAULT_MODEL).
+- Added AI model routing mode via `AI_MODEL_ROUTE_MODE` (speed/balanced/quality, default: speed).
+- Added AI fast fallback toggle via `AI_ENABLE_FAST_FALLBACK` (default: true).
+- Added AI copilot fast model toggle via `AI_COPILOT_USE_FAST_MODEL` (default: true).
+- Added `select_model_for_task()` function in `ai_gateway.py` for centralized model routing.
+- Added automatic model fallback to speed model on timeout/unavailable errors.
+- Added enhanced error handling in NVIDIA NIM provider for Timeout, ConnectionError, HTTP 429, HTTP 5xx, HTTP 400/401/403/404.
+- Added new API error codes: `provider_timeout`, `model_not_available`, `provider_unavailable`, `provider_response_error`, `provider_not_configured`, `ai_internal_error`.
+- Added provider status fields: `timeout_seconds`, `retries`, `retry_backoff_seconds`, `fast_fallback_enabled`, `copilot_uses_fast_model`, `speed_model`, `route_mode`.
+- Added 141 new tests for timeout, retries, model routing, fallback behavior, error codes, and provider status.
+
+### Changed
+- Updated NVIDIA NIM provider to use configurable timeout instead of hardcoded 30s.
+- Updated NVIDIA NIM provider to support configurable retries with exponential backoff.
+- Updated NVIDIA NIM provider to handle HTTP 404 as model_not_available error.
+- Updated NVIDIA NIM provider to not retry on 400/401/403 errors.
+- Updated AI chat endpoint to use model routing instead of hardcoded model.
+- Updated AI configuration copilot endpoint to use model routing.
+- Updated provider status endpoints to include timeout, retry, and routing configuration.
+- Updated SecurityAiInteractionLog to save actual model used (including fallback model).
+- Updated README.md with new AI configuration options and model routing documentation.
+- Updated .env.example with new AI settings.
+
+### Security
+- Provider status endpoints continue to not expose API keys, base URLs, or full prompts.
+- Error messages are redacted before logging and API responses.
+- Fallback only occurs on timeout/unavailable, not on configuration errors.
+- No infinite fallback loops - fallback only once to speed model.
+
+### Performance
+- Speed model (meta/llama-3.2-1b-instruct) responds in ~0.75s for short queries.
+- Model routing reduces latency for operational tasks by using faster models.
+- Configurable timeout prevents long-running requests from blocking.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests` - 501 tests OK
+- `python manage.py test` - 501 tests OK
+- `npm --prefix frontend run build` - OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `git diff --check` - OK
+
+## [0.9.1] - 2026-05-06
+
+### Added
+- Added `scripts/windows/restart_security_center_dev.ps1` for local Windows development restarts.
+- Added a stop/rebuild/relaunch workflow for Django and optional Vite development servers.
+- Added safe port-based process stop for configured backend and frontend ports.
+- Added `CleanDist`, `NpmInstall`, `RunTests`, `StartVite`, and `OpenBrowser` script options.
+
+### Changed
+- Updated current project and frontend package metadata to version `0.9.1`.
+- Documented the Windows restart dev environment workflow in `README.md`.
+
+### Security
+- The restart script avoids broad Python/Node process termination and only stops listeners on configured ports or project dev processes recognized by command line.
+- The restart script fails safely when required ports remain occupied after stop attempts.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests` - 477 tests OK
+- `python manage.py test` - 477 tests OK
+- `npm --prefix frontend run build` - OK, with existing Vite chunk-size warning
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `git diff --check` - OK
+
+## [0.9.0] - 2026-05-06
+
+### Added
+- Added non-destructive rule simulation endpoint for AI-generated configuration drafts.
+- Added `POST /api/security/ai/configuration-copilot/` endpoint for AI-powered configuration generation.
+- Added `POST /api/security/ai/configuration-drafts/` endpoint for saving and reviewing AI-generated drafts.
+- Added `GET /api/security/ai/configuration-drafts/` endpoint for listing saved drafts.
+- Added `POST /api/security/ai/configuration-drafts/<id>/apply/` endpoint for applying reviewed drafts.
+- Added `DELETE /api/security/ai/configuration-drafts/<id>/` endpoint for deleting drafts.
+- Added `POST /security/api/configuration/rules/simulate/` endpoint for non-destructive rule simulation.
+- Added `SecurityAiConfigurationDraft` model for storing AI-generated configuration drafts.
+- Added `AIConfigurationDraftReview` React component for reviewing and applying drafts.
+- Added `AIConfigurationCopilot` React component for AI-powered configuration generation.
+- Added `configuration_copilot.py` service for AI-powered configuration generation.
+- Added `rule_simulation.py` service for non-destructive rule simulation.
+- Added `test_ai_configuration_copilot.py` tests for configuration copilot functionality.
+- Added `test_rule_simulation.py` tests for rule simulation functionality (19 tests).
+
+### Changed
+- Updated current project and frontend package metadata to version `0.9.0`.
+- Updated Configuration Studio to include AI Configuration Copilot tab.
+- Updated SourceCard to support AI-generated configuration drafts.
+- Updated AI draft review UI to include "Simula regola" button for rule drafts.
+- Updated rule simulation to show raw matches, deduplicated matches, noise level, confidence, warnings, recommendations, and redacted examples.
+
+### Security
+- AI-generated drafts are stored with user context and require explicit review before applying.
+- Draft application requires user confirmation and permission checks.
+- No real configuration data is modified until user explicitly applies a reviewed draft.
+- Rule simulation is non-destructive and does not create alerts, tickets, evidence, or configuration.
+- Simulation examples are redacted using `redact_ai_context` to prevent secret exposure.
+- Simulation limits examples to `max_examples` (default 10, max 100) and lookback to `lookback_days` (default 30, max 365).
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests` - 477 tests OK (19 new simulation tests)
+- `python manage.py test` - 477 tests OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `npm --prefix frontend run build` - OK
+- `git diff --check` - OK
+
+## [0.8.1] - 2026-05-06
+
+### Added
+- Added AI Configuration Copilot for reviewed saving of AI-generated configuration drafts for sources, alert rules, and suppressions.
+- Added `POST /api/security/ai/configuration-copilot/` endpoint for AI-powered configuration generation.
+- Added `POST /api/security/ai/configuration-drafts/` endpoint for saving and reviewing AI-generated drafts.
+- Added `GET /api/security/ai/configuration-drafts/` endpoint for listing saved drafts.
+- Added `POST /api/security/ai/configuration-drafts/<id>/apply/` endpoint for applying reviewed drafts.
+- Added `DELETE /api/security/ai/configuration-drafts/<id>/` endpoint for deleting drafts.
+- Added `SecurityAiConfigurationDraft` model for storing AI-generated configuration drafts.
+- Added `AIConfigurationDraftReview` React component for reviewing and applying drafts.
+- Added `AIConfigurationCopilot` React component for AI-powered configuration generation.
+- Added `configuration_copilot.py` service for AI-powered configuration generation.
+- Added `test_ai_configuration_copilot.py` tests for configuration copilot functionality.
+
+### Changed
+- Updated current project and frontend package metadata to version `0.8.1`.
+- Updated Configuration Studio to include AI Configuration Copilot tab.
+- Updated SourceCard to support AI-generated configuration drafts.
+
+### Security
+- AI-generated drafts are stored with user context and require explicit review before applying.
+- Draft application requires user confirmation and permission checks.
+- No real configuration data is modified until user explicitly applies a reviewed draft.
+
+### Validation
+- `python manage.py check` - OK
+- `python manage.py test security.tests` - 458 tests OK
+- `python manage.py test` - 458 tests OK
+- `python manage.py makemigrations --check --dry-run` - OK, no changes detected
+- `npm --prefix frontend run build` - OK
+- `git diff --check` - OK
+
 ## [0.7.5] - 2026-05-05
 
 ### Changed

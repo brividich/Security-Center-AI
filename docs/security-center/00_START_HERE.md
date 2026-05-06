@@ -27,7 +27,7 @@ The portal does not yet provide full SIEM ingestion, raw log search, endpoint re
 9. Run the parser, rule, and KPI pipeline from `/security/pipeline/`.
 10. Review alerts, Evidence Containers, and tickets.
 
-For Windows test packaging and installer hygiene, see `DEPLOYMENT_ARTIFACT_POLICY.md`, `WINDOWS_TEST_PACKAGE.md`, `WINDOWS_INSTALLER_EXE.md`, and `WINDOWS_SERVICE_DEPLOYMENT.md`.
+For AI Memory and internal RAG behavior, see `12_AI_MEMORY.md`. For optional pgvector retrieval, see `13_AI_RETRIEVAL_PGVECTOR.md`. For retrieval benchmarks, see `14_AI_MEMORY_EVALUATION.md`. For the official AI patch tracker, see `15_AI_PATCH_TRACKER.md`. For Windows test packaging and installer hygiene, see `DEPLOYMENT_ARTIFACT_POLICY.md`, `WINDOWS_TEST_PACKAGE.md`, `WINDOWS_INSTALLER_EXE.md`, and `WINDOWS_SERVICE_DEPLOYMENT.md`.
 
 ## First 30 Minutes
 
