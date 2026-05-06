@@ -1,0 +1,29 @@
+# AI Patch Tracker
+
+Official tracker for AI patch identifiers used by the Security Center AI operational roadmap.
+
+This document aligns repository documentation with the patch codes used in planning, review, and validation notes. It is documentation-only metadata and does not define runtime behavior.
+
+## Completed / Validated
+
+| Patch code | Title | Status | Version | Summary | Linked documentation | Main quality gates | Known residual warnings | Next step |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AI-03A | Rich Report Runtime Context | Completed / validated | historical / pre-0.11.0 | Added structured report context in `build_ai_messages`, context preview API/UI behavior, redaction and truncation safeguards, and report section references. | `docs/AI_ASSISTANT.md` | Existing AI integration and context-builder checks for report context, redaction, and preview behavior. | Version is historical and not mapped to a reliable release number in current docs. | Keep as a separate historical line from AI Memory benchmark work. |
+| AI-MEMORY-01 | Internal AI Memory & Knowledge Base | Completed / validated | 0.10.0 | Introduced internal AI Memory models, approved facts, document chunks, citations, memory-aware prompt context, and no-evidence/no-invention behavior. | `docs/security-center/12_AI_MEMORY.md`, `docs/AI_ASSISTANT.md`, `CHANGELOG.md` | `python manage.py check`; `python manage.py test security.tests.test_ai_memory`; `python manage.py test security.tests`; `python manage.py makemigrations --check --dry-run`; frontend build when UI metadata changes. | External embedding providers are not part of AI-MEMORY-01. | Maintain approved-memory discipline and synthetic fixtures only. |
+| AI-MEMORY-02 | Semantic Retrieval Upgrade | Completed / validated | 0.11.0 | Added query normalization, explainable hybrid keyword scoring, deterministic local embeddings, JSON cosine fallback, optional pgvector detection, and retrieval diagnostics. | `docs/security-center/12_AI_MEMORY.md`, `docs/security-center/13_AI_RETRIEVAL_PGVECTOR.md`, `docs/AI_ASSISTANT.md`, `CHANGELOG.md` | `python manage.py check`; `python manage.py test security.tests.test_ai_memory`; `python manage.py test security.tests`; `python manage.py makemigrations --check --dry-run`; frontend build when metadata UI changes. | pgvector remains optional; JSON/SQLite fallback remains supported. | Compare retrieval behavior with AI-MEMORY-03 benchmarks before provider changes. |
+| AI-MEMORY-03 | Retrieval Evaluation & Quality Benchmarks | Completed / validated | 0.11.1 | Added the synthetic retrieval benchmark, baseline corpus, hit@k, MRR, precision@k, recall@k, insufficiency, safety, and latency metrics. | `docs/security-center/12_AI_MEMORY.md`, `docs/security-center/14_AI_MEMORY_EVALUATION.md`, `CHANGELOG.md` | `python manage.py evaluate_ai_memory_retrieval --format text`; `python manage.py evaluate_ai_memory_retrieval --format json`; `python manage.py test security.tests.test_ai_memory_evaluation`; standard Django checks. | Benchmark measures retrieval quality, not final model answer quality. | Use as recommended prerequisite before AI-MEMORY-04. |
+| AI-MEMORY-02C | Retrieval Cleanup after GLM Review | Completed / validated | 0.11.2 | Cleaned retrieval naming and warnings after review, including consistent `context_affinity_boost` score component naming. | `docs/security-center/13_AI_RETRIEVAL_PGVECTOR.md`, `CHANGELOG.md` | `python manage.py test security.tests.test_ai_memory`; `python manage.py test security.tests`; `python manage.py makemigrations --check --dry-run`; `git diff --check`. | pgvector unavailable or missing-embedding warnings remain expected fallback diagnostics when optional vector storage is absent. | Keep score component names stable for explain and diagnostics consumers. |
+| AI-MEMORY-SEC-01 | Memory API & Explain Hardening | Completed / validated | 0.11.2 | Hardened Memory API and explain responses with rate limiting, insufficiency flag validation, source redaction, source reference sanitization, and permission-gated score components. | `docs/security-center/12_AI_MEMORY.md`, `docs/AI_ASSISTANT.md`, `CHANGELOG.md` | `python manage.py check`; `python manage.py test security.tests.test_ai_memory`; `python manage.py test security.tests.test_ai_integration`; `python manage.py test security.tests`; `python manage.py makemigrations --check --dry-run`; `git diff --check`. | Non-manager users intentionally receive sanitized generic source references. | Preserve permission-gated explain behavior and redaction boundaries. |
+
+## Planned
+
+| Patch code | Title | Status | Version | Summary | Linked documentation | Main quality gates | Known residual warnings | Next step |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AI-MEMORY-04 | Real Embedding Provider Integration | Planned | not assigned | Planned integration of a real embedding provider after retrieval quality baselines are available. | `docs/security-center/12_AI_MEMORY.md`, `docs/security-center/14_AI_MEMORY_EVALUATION.md` | Run AI-MEMORY-03 benchmarks before and after provider enablement; run standard Django tests; keep provider tests mocked or synthetic. | Do not introduce real provider secrets or real report data in docs, tests, fixtures, or screenshots. | Implement only after baseline retrieval benchmarks are recorded and reviewed. |
+
+## Identifier Notes
+
+- AI-03A and AI-MEMORY-03 are different patch lines.
+- AI-03A is the historical Rich Report Runtime Context work: structured report context in prompt assembly, context preview API/UI, redaction/truncation, and report section references.
+- AI-MEMORY-03 is the retrieval evaluation and benchmark patch. It does not mean Rich Report Runtime Context.
+- AI-MEMORY-04 should follow AI-MEMORY-03 retrieval benchmarks so real embedding-provider changes can be compared against a known synthetic baseline.
