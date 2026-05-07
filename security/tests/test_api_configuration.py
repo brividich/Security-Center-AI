@@ -11,7 +11,9 @@ from security.models import (
     SecurityAlertSuppressionRule,
     SecurityMailboxIngestionRun,
     SecurityMailboxSource,
+    SecurityConfigurationAuditLog,
     SecuritySource,
+    SecuritySourceConfig,
     Severity,
     Status,
 )
@@ -214,6 +216,85 @@ class ConfigurationApiTestCase(TestCase):
         self.assertEqual(supp_dto["active"], True)
         self.assertEqual(supp_dto["reason"], "Testing")
 
+    def test_create_suppression_accepts_valid_ai_payload(self):
+        response = self.client.post(
+            reverse("security:api_configuration_suppressions"),
+            data={
+                "name": "Temporary false positive",
+                "source_id": self.source.id,
+                "event_type": "defender_vulnerability",
+                "severity": "medium",
+                "match_payload": {"cve": "CVE-2026-0001"},
+                "scope_type": "alert_type",
+                "conditions_json": {"asset": "EXAMPLE-HOST"},
+                "reason": "Reviewed false positive in test fixture",
+                "owner": "Security Team",
+                "is_active": True,
+                "starts_at": "2026-05-01T08:00:00",
+                "expires_at": "2026-05-08T08:00:00",
+                "extra_field": "ignored",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        suppression = SecurityAlertSuppressionRule.objects.get(name="Temporary false positive")
+        self.assertEqual(suppression.reason, "Reviewed false positive in test fixture")
+        self.assertEqual(suppression.source, self.source)
+        self.assertNotIn("extra_field", response.json())
+        self.assertTrue(SecurityConfigurationAuditLog.objects.filter(action="ai_copilot_create_suppression").exists())
+
+    def test_create_suppression_rejects_missing_reason(self):
+        response = self.client.post(
+            reverse("security:api_configuration_suppressions"),
+            data={
+                "name": "No reason",
+                "scope_type": "alert_type",
+                "owner": "Security Team",
+                "conditions_json": {"asset": "EXAMPLE-HOST"},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("reason", response.json()["error"])
+
+    def test_create_suppression_rejects_too_broad_scope(self):
+        response = self.client.post(
+            reverse("security:api_configuration_suppressions"),
+            data={
+                "name": "Too broad",
+                "scope_type": "alert_type",
+                "reason": "Too broad test",
+                "owner": "Security Team",
+                "match_payload": {},
+                "conditions_json": {},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("too broad", response.json()["error"])
+
+    def test_ai_config_audit_does_not_store_secret_payload_values(self):
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "code": "audit-safe-rule",
+                "name": "Audit safe rule",
+                "condition_operator": "contains",
+                "threshold_value": "safe synthetic condition",
+                "threshold_json": {"field": "value"},
+                "severity": "medium",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        audit = SecurityConfigurationAuditLog.objects.get(action="ai_copilot_create_rule")
+        self.assertNotIn("safe synthetic condition", audit.new_value)
+        self.assertNotIn("threshold_json", audit.old_value)
+
     def test_test_endpoint_does_not_persist_sample_data(self):
         initial_message_count = SecurityMailboxSource.objects.count()
 
@@ -299,6 +380,139 @@ class ConfigurationApiTestCase(TestCase):
         self.assertEqual(rule.metric_name, "ai_condition")
         self.assertEqual(rule.condition_operator, "contains")
         self.assertEqual(rule.threshold_value, "severity == critical")
+
+    def test_create_source_config_accepts_ai_normalized_payload(self):
+        response = self.client.post(
+            reverse("security:api_configuration_source_create"),
+            data={
+                "name": "Example WatchGuard EPDR",
+                "source_type": "watchguard_epdr",
+                "vendor": "WatchGuard",
+                "enabled": True,
+                "description": "Synthetic source from reviewed AI draft",
+                "expected_frequency": "daily",
+                "expected_time_window_start": "08:00",
+                "expected_time_window_end": "18:00",
+                "mailbox_sender_patterns": ["*@example.local"],
+                "mailbox_subject_patterns": ["*EPDR*"],
+                "parser_name": "watchguard_report_parser",
+                "severity_mapping_json": {"critical": "critical"},
+                "metadata_json": {"match_tokens": ["watchguard"]},
+                "unexpected_ai_field": "ignored",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        config = SecuritySourceConfig.objects.get(name="Example WatchGuard EPDR")
+        self.assertEqual(config.source_type, "watchguard_epdr")
+        self.assertEqual(config.expected_frequency, "daily")
+        self.assertEqual(config.mailbox_subject_patterns, ["*EPDR*"])
+        self.assertNotIn("unexpected_ai_field", response.json())
+        self.assertTrue(SecurityConfigurationAuditLog.objects.filter(action="ai_copilot_create_source").exists())
+
+    def test_create_source_config_rejects_missing_required_fields(self):
+        response = self.client.post(
+            reverse("security:api_configuration_source_create"),
+            data={"expected_frequency": "daily", "name": ""},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("name", response.json()["error"])
+
+    def test_create_source_config_rejects_invalid_source_type(self):
+        response = self.client.post(
+            reverse("security:api_configuration_source_create"),
+            data={
+                "name": "Invalid Source Type",
+                "source_type": "Invalid Source",
+                "expected_frequency": "daily",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("source_type", response.json()["error"])
+
+    def test_create_structured_rule_accepts_valid_ai_payload(self):
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "code": "defender-critical-cvss",
+                "name": "Defender critical CVSS exposed devices",
+                "enabled": True,
+                "source_type": "microsoft_defender",
+                "metric_name": "max_cvss",
+                "condition_operator": "gte",
+                "threshold_value": "cvss >= 9 and exposed_devices > 0",
+                "threshold_json": {"cvss": 9, "exposed_devices": {"gt": 0}},
+                "severity": "critical",
+                "cooldown_minutes": 60,
+                "dedup_window_minutes": 60,
+                "auto_create_ticket": False,
+                "auto_create_evidence_container": False,
+                "description": "Synthetic AI reviewed rule",
+                "extra_field": "ignored",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        rule = SecurityAlertRuleConfig.objects.get(code="defender-critical-cvss")
+        self.assertEqual(rule.severity, Severity.CRITICAL)
+        self.assertEqual(rule.condition_operator, "gte")
+        self.assertEqual(rule.cooldown_minutes, 1440)
+        self.assertEqual(rule.dedup_window_minutes, 1440)
+        self.assertTrue(rule.auto_create_ticket)
+        self.assertTrue(rule.auto_create_evidence_container)
+        self.assertTrue(SecurityConfigurationAuditLog.objects.filter(action="ai_copilot_create_rule").exists())
+
+    def test_create_structured_rule_rejects_unsafe_code(self):
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "code": "Bad Code!",
+                "name": "Bad code",
+                "condition_operator": "gte",
+                "severity": "high",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("code", response.json()["error"])
+
+    def test_create_structured_rule_rejects_invalid_operator(self):
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "code": "bad-operator",
+                "name": "Bad operator",
+                "condition_operator": "between",
+                "severity": "high",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("condition_operator", response.json()["error"])
+
+    def test_create_structured_rule_rejects_invalid_json(self):
+        response = self.client.post(
+            reverse("security:api_configuration_rules"),
+            data={
+                "code": "bad-json",
+                "name": "Bad JSON",
+                "condition_operator": "gte",
+                "severity": "high",
+                "threshold_json": "[1, 2]",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("threshold_json", response.json()["error"])
 
     def test_create_rule_requires_rule_name_and_condition(self):
         response = self.client.post(

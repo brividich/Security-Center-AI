@@ -28,6 +28,7 @@ from security.models import (
     Severity,
 )
 from security.parsers.load import *  # noqa: F403,F401
+from security.ai.services.memory.diagnostics import ai_memory_diagnostic_check
 from security.parsers import parser_registry
 from security.services.backup_monitoring import last_seen_backup_status, missing_backup_candidates
 from security.services.configuration import get_bool_setting
@@ -69,6 +70,7 @@ def run_security_center_diagnostics():
         _defender_critical_ticket_check(),
         _broad_critical_suppression_check(),
         _critical_notification_check(),
+        ai_memory_diagnostic_check(),
     ]
     return {"status": _rollup_status(checks), "checks": checks}
 

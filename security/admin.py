@@ -129,3 +129,44 @@ for config_model in [
         admin.site.register(config_model)
     except admin.sites.AlreadyRegistered:
         pass
+
+
+@admin.register(models.AIKnowledgeDocument)
+class AIKnowledgeDocumentAdmin(admin.ModelAdmin):
+    list_display = ("title", "source_type", "source_object_type", "source_object_id", "updated_at")
+    list_filter = ("source_type", "source_object_type")
+    search_fields = ("title", "content_hash", "source_object_id")
+
+
+@admin.register(models.AIKnowledgeChunk)
+class AIKnowledgeChunkAdmin(admin.ModelAdmin):
+    list_display = ("document", "chunk_index", "created_at")
+    search_fields = ("document__title", "text_hash")
+
+
+@admin.register(models.AIKnowledgeEmbedding)
+class AIKnowledgeEmbeddingAdmin(admin.ModelAdmin):
+    list_display = ("chunk", "provider", "model_name", "dimensions", "updated_at")
+    list_filter = ("provider", "dimensions")
+    search_fields = ("chunk__document__title", "embedding_hash")
+
+
+@admin.register(models.AIMemoryFact)
+class AIMemoryFactAdmin(admin.ModelAdmin):
+    list_display = ("scope", "key", "category", "is_approved", "confidence", "updated_at")
+    list_filter = ("scope", "category", "is_approved")
+    search_fields = ("key", "value", "source")
+
+
+@admin.register(models.AIConversation)
+class AIConversationAdmin(admin.ModelAdmin):
+    list_display = ("title", "user", "context_type", "context_object_id", "updated_at")
+    list_filter = ("context_type",)
+    search_fields = ("title", "context_object_id", "user__username")
+
+
+@admin.register(models.AIConversationMessage)
+class AIConversationMessageAdmin(admin.ModelAdmin):
+    list_display = ("conversation", "role", "created_at")
+    list_filter = ("role",)
+    search_fields = ("conversation__title",)

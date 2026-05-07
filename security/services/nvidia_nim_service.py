@@ -1,3 +1,13 @@
+"""
+Legacy NVIDIA NIM Service
+
+DEPRECATED: This module is a legacy compatibility wrapper.
+Use security.ai.providers.nvidia_nim via security.ai.services.ai_gateway instead.
+
+This module is retained for test compatibility only and is not used in runtime code.
+All new code should use the AI Gateway abstraction layer.
+"""
+
 import hashlib
 import json
 import logging
