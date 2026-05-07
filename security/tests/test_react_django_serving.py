@@ -17,7 +17,28 @@ class ReactDjangoServingTests(TestCase):
     def test_frontend_routes_return_missing_build_page_without_crashing(self):
         with react_temp_dir() as temp_dir:
             with override_settings(FRONTEND_DIST_DIR=Path(temp_dir), SERVE_REACT_APP=True):
-                for route in ["/", "/app/", "/configuration", "/integrations/microsoft-graph", "/modules/watchguard"]:
+                for route in [
+                    "/",
+                    "/app/",
+                    "/configuration",
+                    "/integrations/microsoft-graph",
+                    "/modules/watchguard",
+                    "/ai",
+                    "/ai/",
+                    "/inbox",
+                    "/inbox/",
+                    "/alerts",
+                    "/alerts/",
+                    "/alerts/alert-1",
+                    "/assets",
+                    "/assets/",
+                    "/services",
+                    "/services/",
+                    "/evidence",
+                    "/evidence/",
+                    "/rules",
+                    "/rules/",
+                ]:
                     with self.subTest(route=route):
                         response = self.client.get(route)
 
@@ -77,3 +98,39 @@ class ReactDjangoServingTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("csrftoken", response.cookies)
+
+    def test_ai_route_with_query_params_returns_react_app(self):
+        with react_temp_dir() as temp_dir:
+            with override_settings(FRONTEND_DIST_DIR=Path(temp_dir), SERVE_REACT_APP=True):
+                response = self.client.get("/ai?page=report&object_type=report&object_id=report-2&prompt=Riassumi+questo+report+in+modo+conciso")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn("Build frontend di produzione mancante", body)
+
+    def test_all_react_routes_return_200_with_build(self):
+        with react_temp_dir() as temp_dir:
+            dist_dir = Path(temp_dir)
+            (dist_dir / "assets").mkdir()
+            (dist_dir / "index.html").write_text(
+                '<!doctype html><html><body><div id="root"></div><script type="module" src="/assets/index.js"></script></body></html>',
+                encoding="utf-8",
+            )
+
+            with override_settings(FRONTEND_DIST_DIR=dist_dir, SERVE_REACT_APP=True):
+                for route in [
+                    "/ai",
+                    "/inbox",
+                    "/alerts",
+                    "/alerts/alert-1",
+                    "/assets",
+                    "/services",
+                    "/evidence",
+                    "/rules",
+                    "/reports",
+                    "/configuration",
+                ]:
+                    with self.subTest(route=route):
+                        response = self.client.get(route)
+                        self.assertEqual(response.status_code, 200)
+                        self.assertIn('<div id="root"></div>', response.content.decode())

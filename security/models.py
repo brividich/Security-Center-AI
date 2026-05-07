@@ -709,3 +709,139 @@ class SecurityAiInteractionLog(models.Model):
 
     def __str__(self):
         return f"{self.action} - {self.status}"
+
+
+class AIKnowledgeDocument(models.Model):
+    title = models.CharField(max_length=255)
+    source_type = models.CharField(max_length=80, db_index=True)
+    source_object_type = models.CharField(max_length=80, blank=True, db_index=True)
+    source_object_id = models.CharField(max_length=80, blank=True, db_index=True)
+    content_hash = models.CharField(max_length=64, db_index=True)
+    raw_text = models.TextField()
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-created_at"]
+        indexes = [
+            models.Index(fields=["source_type", "source_object_type"]),
+            models.Index(fields=["source_object_type", "source_object_id"]),
+            models.Index(fields=["content_hash"]),
+        ]
+
+    def __str__(self):
+        return self.title
+
+
+class AIKnowledgeChunk(models.Model):
+    document = models.ForeignKey(AIKnowledgeDocument, on_delete=models.CASCADE, related_name="chunks")
+    chunk_index = models.PositiveIntegerField()
+    text = models.TextField()
+    text_hash = models.CharField(max_length=64, db_index=True)
+    embedding = models.JSONField(default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["document", "chunk_index"]
+        unique_together = [("document", "chunk_index")]
+        indexes = [
+            models.Index(fields=["document", "chunk_index"]),
+            models.Index(fields=["text_hash"]),
+        ]
+
+    def __str__(self):
+        return f"{self.document_id} chunk {self.chunk_index}"
+
+
+class AIKnowledgeEmbedding(models.Model):
+    chunk = models.OneToOneField(AIKnowledgeChunk, on_delete=models.CASCADE, related_name="knowledge_embedding")
+    provider = models.CharField(max_length=80, db_index=True)
+    model_name = models.CharField(max_length=160, blank=True)
+    dimensions = models.PositiveIntegerField(default=384, db_index=True)
+    embedding_hash = models.CharField(max_length=64, db_index=True)
+    embedding = models.JSONField(default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["chunk__document", "chunk__chunk_index"]
+        indexes = [
+            models.Index(fields=["provider", "model_name", "dimensions"], name="security_ai_provide_2705a6_idx"),
+            models.Index(fields=["embedding_hash"], name="security_ai_embeddi_cb8f77_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.provider}:{self.model_name or 'default'} chunk {self.chunk_id}"
+
+
+class AIMemoryFact(models.Model):
+    scope = models.CharField(max_length=80, default="global", db_index=True)
+    key = models.CharField(max_length=160, db_index=True)
+    value = models.TextField()
+    category = models.CharField(max_length=80, blank=True, db_index=True)
+    confidence = models.FloatField(default=1.0)
+    is_approved = models.BooleanField(default=False, db_index=True)
+    source = models.CharField(max_length=160, blank=True)
+    source_object_type = models.CharField(max_length=80, blank=True, db_index=True)
+    source_object_id = models.CharField(max_length=80, blank=True, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["scope", "category", "key"]
+        unique_together = [("scope", "key", "category")]
+        indexes = [
+            models.Index(fields=["scope", "category", "is_approved"]),
+            models.Index(fields=["source_object_type", "source_object_id"]),
+        ]
+
+    def __str__(self):
+        return f"{self.scope}:{self.key}"
+
+
+class AIConversation(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    title = models.CharField(max_length=255, blank=True)
+    context_type = models.CharField(max_length=80, blank=True, db_index=True)
+    context_object_id = models.CharField(max_length=80, blank=True, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-created_at"]
+        indexes = [
+            models.Index(fields=["user", "updated_at"]),
+            models.Index(fields=["context_type", "context_object_id"]),
+        ]
+
+    def __str__(self):
+        return self.title or f"Conversation #{self.pk}"
+
+
+class AIConversationMessage(models.Model):
+    class Role(models.TextChoices):
+        USER = "user", "User"
+        ASSISTANT = "assistant", "Assistant"
+        SYSTEM = "system", "System"
+        TOOL = "tool", "Tool"
+
+    conversation = models.ForeignKey(AIConversation, on_delete=models.CASCADE, related_name="messages")
+    role = models.CharField(max_length=16, choices=Role.choices)
+    content = models.TextField()
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["conversation", "created_at"]),
+            models.Index(fields=["role", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.conversation_id}:{self.role}"

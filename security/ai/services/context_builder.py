@@ -1,5 +1,6 @@
 """Context builder for AI chat - constructs secure messages with application context"""
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -7,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from ..services.redaction import redact_ai_context
+from ..services.redaction import redact_ai_context, redact_text
 from ...models import (
     SecurityAlert,
     SecurityAlertActionLog,
@@ -16,6 +17,9 @@ from ...models import (
     SecurityRemediationTicket,
     SecurityReport,
     SecurityVulnerabilityFinding,
+    SecurityEventRecord,
+    SecuritySourceFile,
+    SecurityMailboxMessage,
 )
 from ...permissions import can_view_security_center
 
@@ -24,9 +28,99 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY_MESSAGES = 10
 MAX_CONTENT_LENGTH = 4000
 
+# Rich report context limits
+MAX_REPORT_CONTEXT_CHARS = 30000
+MAX_PARSED_PAYLOAD_CHARS = 8000
+MAX_MAIL_BODY_CHARS = 8000
+MAX_PIPELINE_RESULT_CHARS = 4000
+MAX_MAIL_RAW_PAYLOAD_CHARS = 4000
+MAX_EVENT_PAYLOAD_CHARS = 4000
+MAX_EVENT_DECISION_TRACE_CHARS = 3000
+MAX_SOURCE_FILE_CONTENT_CHARS = 8000
+MAX_SOURCE_FILE_RAW_PAYLOAD_CHARS = 4000
+MAX_EVIDENCE_ITEM_CHARS = 3000
+
 CONTEXT_DIR = Path(__file__).parent.parent / "context"
 ALLOWED_OBJECT_TYPES = {"dashboard", "alert", "report", "ticket", "evidence"}
 SAFE_UNAVAILABLE_CONTEXT = {"error": "requested object not found or unavailable"}
+
+
+def safe_json_dumps(value: Any, indent: Optional[int] = None) -> str:
+    """Safely serialize value to JSON string, handling non-serializable types"""
+    try:
+        return json.dumps(value, default=str, ensure_ascii=False, indent=indent)
+    except Exception as e:
+        logger.warning(f"Failed to serialize value to JSON: {e}")
+        return str(value)
+
+
+def value_char_len(value: Any) -> int:
+    """Calculate character length of a value"""
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        return len(value)
+    if isinstance(value, (dict, list)):
+        return len(safe_json_dumps(value))
+    return len(str(value))
+
+
+def truncate_text(text: str, max_chars: int) -> str:
+    """Truncate text to max characters, adding ellipsis if truncated"""
+    if not isinstance(text, str):
+        text = str(text) if text is not None else ""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars - 3] + "..."
+
+
+def redact_and_truncate(value: Any, max_chars: int) -> Any:
+    """Redact and truncate a value for safe AI context"""
+    if value is None:
+        return None
+
+    # Redact first
+    if isinstance(value, dict):
+        redacted = redact_ai_context(value)
+    elif isinstance(value, list):
+        redacted = redact_ai_context(value)
+    elif isinstance(value, str):
+        redacted = redact_text(value)
+    else:
+        redacted = value
+
+    # Then truncate if text
+    if isinstance(redacted, str):
+        if isinstance(value, str) and len(value) > max_chars and len(redacted) <= max_chars:
+            return truncate_text(redacted + "...", max_chars)
+        return truncate_text(redacted, max_chars)
+
+    # For dict/list, check total length and truncate if needed
+    if isinstance(redacted, (dict, list)):
+        json_str = safe_json_dumps(redacted)
+        if len(json_str) > max_chars:
+            # Truncate the JSON string and try to parse back
+            truncated_json = truncate_text(json_str, max_chars)
+            try:
+                return json.loads(truncated_json)
+            except json.JSONDecodeError:
+                # If parsing fails, return truncated string
+                return truncated_json
+
+    return redacted
+
+
+def add_context_warning(context: Dict[str, Any], message: str) -> None:
+    """Add a warning message to context warnings list"""
+    if "warnings" not in context:
+        context["warnings"] = []
+    if message not in context["warnings"]:
+        context["warnings"].append(message)
+
+
+def section_ref(source_model: str, source_id: Any, section_id: str) -> str:
+    """Generate a section reference string"""
+    return f"{source_model}:{source_id}:{section_id}"
 
 
 def load_context_file(filename: str) -> str:
@@ -161,45 +255,269 @@ def get_alert_context(alert_id: int) -> Dict[str, Any]:
 
 
 def get_report_context(report_id: int) -> Dict[str, Any]:
-    """Get context for SecurityReport"""
+    """Get rich context for SecurityReport"""
     try:
-        report = SecurityReport.objects.select_related("source", "mailbox_message", "source_file").prefetch_related(
-            "metrics"
-        ).get(id=report_id)
+        report = SecurityReport.objects.select_related(
+            "source", "mailbox_message", "source_file"
+        ).prefetch_related("metrics").get(id=report_id)
 
         context = {
+            "context_available": True,
+            "context_type": "report",
+            "object_id": str(report_id),
             "type": "report",
             "id": report.id,
-            "title": report.title,
-            "report_type": report.report_type,
-            "report_date": report.report_date.isoformat() if report.report_date else None,
-            "parser_name": report.parser_name,
-            "parse_status": report.parse_status,
-            "created_at": report.created_at.isoformat() if report.created_at else None,
-            "source": report.source.name if report.source else None,
-            "source_type": report.source.source_type if report.source else None,
+            "summary": {
+                "title": report.title,
+                "report_type": report.report_type,
+                "report_date": report.report_date.isoformat() if report.report_date else None,
+                "parser_name": report.parser_name,
+                "parse_status": report.parse_status,
+                "created_at": report.created_at.isoformat() if report.created_at else None,
+            },
+            "source": {
+                "id": report.source.id if report.source else None,
+                "name": report.source.name if report.source else None,
+                "vendor": report.source.vendor if report.source else None,
+                "source_type": report.source.source_type if report.source else None,
+            },
+            "main_object": {
+                "report": {
+                    "id": report.id,
+                    "title": report.title,
+                    "report_type": report.report_type,
+                    "report_date": report.report_date.isoformat() if report.report_date else None,
+                    "parser_name": report.parser_name,
+                    "parse_status": report.parse_status,
+                    "created_at": report.created_at.isoformat() if report.created_at else None,
+                },
+                "parsed_payload": redact_and_truncate(report.parsed_payload, MAX_PARSED_PAYLOAD_CHARS),
+                "metrics": [],
+            },
+            "raw_extracts": {
+                "mailbox_message": {
+                    "available": False,
+                    "id": None,
+                    "subject": None,
+                    "sender": None,
+                    "received_at": None,
+                    "parse_status": None,
+                    "body_available": False,
+                    "body_preview": None,
+                    "pipeline_result_available": False,
+                    "pipeline_result": None,
+                    "raw_payload": None,
+                    "references": [],
+                },
+                "source_file": {
+                    "available": False,
+                    "id": None,
+                    "original_name": None,
+                    "file_type": None,
+                    "parse_status": None,
+                    "uploaded_at": None,
+                    "content_available": False,
+                    "content_preview": None,
+                    "raw_payload": None,
+                    "references": [],
+                },
+            },
+            "related": {
+                "events": [],
+                "vulnerabilities": [],
+                "evidence_items": [],
+                "linked_alerts": [],
+            },
+            "context_quality": {
+                "score": 0,
+                "level": "empty",
+                "has_parsed_payload": False,
+                "has_mail_body": False,
+                "has_pipeline_result": False,
+                "has_events": False,
+                "has_event_payload": False,
+                "has_metrics": False,
+                "has_vulnerabilities": False,
+                "has_evidence_items": False,
+                "has_source_file_text": False,
+                "missing_sections": [],
+            },
+            "limits": {
+                "truncated": False,
+                "max_context_chars": MAX_REPORT_CONTEXT_CHARS,
+                "included_sections": [],
+            },
+            "warnings": [],
         }
 
+        # Backward compatibility: maintain flat keys
+        context["title"] = report.title
+        context["report_type"] = report.report_type
+        context["report_date"] = report.report_date.isoformat() if report.report_date else None
+        context["parser_name"] = report.parser_name
+        context["parse_status"] = report.parse_status
+        context["source"] = report.source.name if report.source else None
+        context["source_type"] = report.source.source_type if report.source else None
+
+        # Include parsed_payload
+        if report.parsed_payload:
+            context["context_quality"]["has_parsed_payload"] = True
+            context["context_quality"]["score"] += 20
+            context["limits"]["included_sections"].append("parsed_payload")
+        else:
+            context["context_quality"]["missing_sections"].append("parsed_payload")
+
+        # Include metrics (max 50)
         metrics = []
-        for metric in report.metrics.all()[:20]:
+        for metric in report.metrics.all()[:50]:
             metrics.append(
                 {
                     "name": metric.name,
                     "value": metric.value,
                     "unit": metric.unit,
                     "labels": metric.labels,
+                    "references": [section_ref("SecurityReport", report.id, f"metric:{metric.name}")],
                 }
             )
-        context["metrics"] = metrics
+        context["main_object"]["metrics"] = metrics
+        context["metrics"] = metrics  # Backward compatibility
 
-        vulnerabilities = []
-        vulnerability_findings = (
+        if metrics:
+            context["context_quality"]["has_metrics"] = True
+            context["context_quality"]["score"] += 10
+            context["limits"]["included_sections"].append("metrics")
+        else:
+            context["context_quality"]["missing_sections"].append("metrics")
+
+        # Include mailbox_message if present
+        if report.mailbox_message:
+            mailbox = report.mailbox_message
+            context["raw_extracts"]["mailbox_message"]["available"] = True
+            context["raw_extracts"]["mailbox_message"]["id"] = mailbox.id
+            context["raw_extracts"]["mailbox_message"]["subject"] = mailbox.subject
+            context["raw_extracts"]["mailbox_message"]["sender"] = redact_text(mailbox.sender) if mailbox.sender else None
+            context["raw_extracts"]["mailbox_message"]["received_at"] = mailbox.received_at.isoformat() if mailbox.received_at else None
+            context["raw_extracts"]["mailbox_message"]["parse_status"] = mailbox.parse_status
+            context["raw_extracts"]["mailbox_message"]["references"] = [
+                section_ref("SecurityMailboxMessage", mailbox.id, "message")
+            ]
+
+            # Body preview
+            if mailbox.body:
+                context["raw_extracts"]["mailbox_message"]["body_available"] = True
+                context["raw_extracts"]["mailbox_message"]["body_preview"] = redact_and_truncate(
+                    mailbox.body, MAX_MAIL_BODY_CHARS
+                )
+                context["context_quality"]["has_mail_body"] = True
+                context["context_quality"]["score"] += 15
+                context["limits"]["included_sections"].append("mailbox_body")
+            else:
+                add_context_warning(context, "mailbox_message.body is empty or unavailable")
+                context["context_quality"]["missing_sections"].append("mailbox_body")
+
+            # Pipeline result
+            if mailbox.pipeline_result:
+                context["raw_extracts"]["mailbox_message"]["pipeline_result_available"] = True
+                context["raw_extracts"]["mailbox_message"]["pipeline_result"] = redact_and_truncate(
+                    mailbox.pipeline_result, MAX_PIPELINE_RESULT_CHARS
+                )
+                context["context_quality"]["has_pipeline_result"] = True
+                context["context_quality"]["score"] += 10
+                context["limits"]["included_sections"].append("pipeline_result")
+            else:
+                add_context_warning(context, "mailbox_message.pipeline_result is empty or unavailable")
+                context["context_quality"]["missing_sections"].append("pipeline_result")
+
+            # Raw payload
+            if mailbox.raw_payload:
+                context["raw_extracts"]["mailbox_message"]["raw_payload"] = redact_and_truncate(
+                    mailbox.raw_payload, MAX_MAIL_RAW_PAYLOAD_CHARS
+                )
+                context["limits"]["included_sections"].append("mailbox_raw_payload")
+        else:
+            context["context_quality"]["missing_sections"].append("mailbox_message")
+
+        # Include source_file if present
+        if report.source_file:
+            source_file = report.source_file
+            context["raw_extracts"]["source_file"]["available"] = True
+            context["raw_extracts"]["source_file"]["id"] = source_file.id
+            context["raw_extracts"]["source_file"]["original_name"] = source_file.original_name
+            context["raw_extracts"]["source_file"]["file_type"] = source_file.file_type
+            context["raw_extracts"]["source_file"]["parse_status"] = source_file.parse_status
+            context["raw_extracts"]["source_file"]["uploaded_at"] = source_file.uploaded_at.isoformat() if source_file.uploaded_at else None
+            context["raw_extracts"]["source_file"]["references"] = [
+                section_ref("SecuritySourceFile", source_file.id, "file")
+            ]
+
+            # Content preview
+            if source_file.content:
+                context["raw_extracts"]["source_file"]["content_available"] = True
+                context["raw_extracts"]["source_file"]["content_preview"] = redact_and_truncate(
+                    source_file.content, MAX_SOURCE_FILE_CONTENT_CHARS
+                )
+                context["context_quality"]["has_source_file_text"] = True
+                context["context_quality"]["score"] += 10
+                context["limits"]["included_sections"].append("source_file_content")
+            else:
+                context["context_quality"]["missing_sections"].append("source_file_content")
+
+            # Raw payload
+            if source_file.raw_payload:
+                context["raw_extracts"]["source_file"]["raw_payload"] = redact_and_truncate(
+                    source_file.raw_payload, MAX_SOURCE_FILE_RAW_PAYLOAD_CHARS
+                )
+                context["limits"]["included_sections"].append("source_file_raw_payload")
+        else:
+            context["context_quality"]["missing_sections"].append("source_file")
+
+        # Include events (max 30)
+        events = (
+            SecurityEventRecord.objects.select_related("source", "asset")
+            .filter(report=report)
+            .order_by("-occurred_at")[:30]
+        )
+        event_list = []
+        has_event_payload = False
+        for event in events:
+            event_data = {
+                "id": event.id,
+                "event_type": event.event_type,
+                "severity": event.severity,
+                "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+                "suppressed": event.suppressed,
+                "asset": event.asset.hostname if event.asset else None,
+                "payload": redact_and_truncate(event.payload, MAX_EVENT_PAYLOAD_CHARS),
+                "decision_trace": redact_and_truncate(event.decision_trace, MAX_EVENT_DECISION_TRACE_CHARS),
+                "references": [section_ref("SecurityEventRecord", event.id, "event")],
+            }
+            event_list.append(event_data)
+            if event.payload:
+                has_event_payload = True
+        context["related"]["events"] = event_list
+
+        if event_list:
+            context["context_quality"]["has_events"] = True
+            context["context_quality"]["score"] += 15
+            context["limits"]["included_sections"].append("events")
+        else:
+            context["context_quality"]["missing_sections"].append("events")
+
+        if has_event_payload:
+            context["context_quality"]["has_event_payload"] = True
+            context["context_quality"]["score"] += 10
+        else:
+            context["context_quality"]["missing_sections"].append("event_payload")
+
+        # Include vulnerabilities (max 50)
+        vulnerabilities = (
             SecurityVulnerabilityFinding.objects.select_related("asset")
             .filter(report=report)
-            .order_by("-last_seen_at")[:20]
+            .order_by("-last_seen_at")[:50]
         )
-        for vuln in vulnerability_findings:
-            vulnerabilities.append(
+        vuln_list = []
+        for vuln in vulnerabilities:
+            vuln_list.append(
                 {
                     "cve": vuln.cve,
                     "severity": vuln.severity,
@@ -208,10 +526,100 @@ def get_report_context(report_id: int) -> Dict[str, Any]:
                     "asset": vuln.asset.hostname if vuln.asset else None,
                     "affected_product": vuln.affected_product,
                     "exposed_devices": vuln.exposed_devices,
-                    "payload": vuln.payload,
+                    "payload": redact_and_truncate(vuln.payload, MAX_EVIDENCE_ITEM_CHARS),
+                    "first_seen_at": vuln.first_seen_at.isoformat() if vuln.first_seen_at else None,
+                    "last_seen_at": vuln.last_seen_at.isoformat() if vuln.last_seen_at else None,
+                    "references": [section_ref("SecurityVulnerabilityFinding", vuln.id, "vulnerability")],
                 }
             )
-        context["vulnerabilities"] = vulnerabilities
+        context["related"]["vulnerabilities"] = vuln_list
+        context["vulnerabilities"] = vuln_list  # Backward compatibility
+
+        if vuln_list:
+            context["context_quality"]["has_vulnerabilities"] = True
+            context["context_quality"]["score"] += 10
+            context["limits"]["included_sections"].append("vulnerabilities")
+        else:
+            context["context_quality"]["missing_sections"].append("vulnerabilities")
+
+        # Include evidence items (max 30)
+        evidence_items = (
+            SecurityEvidenceItem.objects.select_related("container", "event")
+            .filter(report=report)[:30]
+        )
+        evidence_list = []
+        for item in evidence_items:
+            evidence_list.append(
+                {
+                    "item_type": item.item_type,
+                    "content": redact_and_truncate(item.content, MAX_EVIDENCE_ITEM_CHARS),
+                    "container": {
+                        "id": str(item.container.id) if item.container else None,
+                        "title": item.container.title if item.container else None,
+                        "status": item.container.status if item.container else None,
+                    } if item.container else None,
+                    "event": {
+                        "id": item.event.id if item.event else None,
+                        "event_type": item.event.event_type if item.event else None,
+                    } if item.event else None,
+                    "references": [section_ref("SecurityEvidenceItem", item.id, "evidence")],
+                }
+            )
+        context["related"]["evidence_items"] = evidence_list
+
+        if evidence_list:
+            context["context_quality"]["has_evidence_items"] = True
+            context["context_quality"]["score"] += 10
+            context["limits"]["included_sections"].append("evidence_items")
+        else:
+            context["context_quality"]["missing_sections"].append("evidence_items")
+
+        # Include linked alerts (max 30)
+        linked_alerts = (
+            SecurityAlert.objects.select_related("source", "event")
+            .filter(event__report=report)
+            .order_by("-created_at")[:30]
+        )
+        alert_list = []
+        for alert in linked_alerts:
+            alert_list.append(
+                {
+                    "id": alert.id,
+                    "title": alert.title,
+                    "severity": alert.severity,
+                    "status": alert.status,
+                    "created_at": alert.created_at.isoformat() if alert.created_at else None,
+                    "event_id": alert.event.id if alert.event else None,
+                    "decision_trace": redact_and_truncate(alert.decision_trace, MAX_EVENT_DECISION_TRACE_CHARS),
+                    "references": [section_ref("SecurityAlert", alert.id, "alert")],
+                }
+            )
+        context["related"]["linked_alerts"] = alert_list
+
+        if alert_list:
+            context["limits"]["included_sections"].append("linked_alerts")
+
+        # Calculate context quality level
+        score = context["context_quality"]["score"]
+        if score == 0:
+            context["context_quality"]["level"] = "empty"
+        elif score <= 25:
+            context["context_quality"]["level"] = "poor"
+        elif score <= 55:
+            context["context_quality"]["level"] = "partial"
+        elif score <= 80:
+            context["context_quality"]["level"] = "good"
+        else:
+            context["context_quality"]["level"] = "complete"
+
+        # Check if truncated
+        total_chars = value_char_len(context)
+        if total_chars > MAX_REPORT_CONTEXT_CHARS:
+            context["limits"]["truncated"] = True
+            add_context_warning(
+                context,
+                f"Context truncated to {MAX_REPORT_CONTEXT_CHARS} characters (was {total_chars})"
+            )
 
         return context
     except SecurityReport.DoesNotExist:
@@ -524,7 +932,31 @@ def build_ai_messages(
         context_data = get_runtime_context(user, runtime_context)
         if context_data:
             redacted_context = redact_ai_context(context_data)
-            messages.append({"role": "system", "content": f"Context: {redacted_context}"})
+
+            # For reports, use structured context message
+            object_type = runtime_context.get("object_type")
+            if object_type == "report" and context_data.get("context_available"):
+                context_message = (
+                    "Security Center report context package follows. "
+                    "Use only this context and the user's question. "
+                    "If a section is missing, say it clearly and do not invent details. "
+                    "Cite internal section_id references when useful.\n\n"
+                    f"{safe_json_dumps(redacted_context, indent=2)}"
+                )
+                messages.append({"role": "system", "content": context_message})
+            else:
+                # Use legacy format for other object types
+                messages.append({"role": "system", "content": f"Context: {redacted_context}"})
+
+    from .memory.ai_memory_context_builder import build_ai_memory_context
+
+    memory_context = build_ai_memory_context(
+        question=user_message,
+        context_type=(runtime_context or {}).get("object_type") if isinstance(runtime_context, dict) else None,
+        context_object_id=(runtime_context or {}).get("object_id") if isinstance(runtime_context, dict) else None,
+        user=user,
+    )
+    messages.append({"role": "system", "content": memory_context["prompt_context_text"]})
 
     messages.append({"role": "user", "content": user_message})
 

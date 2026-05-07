@@ -1,6 +1,10 @@
+import json
+import re
+
 from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime, parse_time
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status as http_status
 from rest_framework.response import Response
@@ -17,14 +21,17 @@ from .models import (
     SecurityMailboxIngestionRun,
     SecurityMailboxSource,
     SecurityParserConfig,
+    SecuritySource,
+    SecuritySourceConfig,
     SettingValueType,
     Severity,
     Status,
 )
 from .permissions import CanViewSecurityCenter, CanManageSecurityCenter
 from .services.addon_registry import ACTIVE_ALERT_STATUSES, ADDONS
-from .services.configuration import can_manage_security_config, get_setting, set_setting
+from .services.configuration import audit_config_change, can_manage_security_config, get_setting, set_setting
 from .services.mailbox_ingestion import run_mailbox_ingestion
+from .services.rule_simulation import simulate_alert_rule
 from .parsers import parser_registry
 
 
@@ -110,6 +117,9 @@ class ConfigurationSourcesApiView(APIView):
             }
             result.append(dto)
 
+        for source_config in SecuritySourceConfig.objects.all().order_by("vendor", "name"):
+            result.append(_build_source_config_studio_dto(source_config))
+
         return Response(result)
 
 
@@ -151,6 +161,9 @@ class ConfigurationRulesApiView(APIView):
 
     def post(self, request):
         data = request.data
+
+        if _is_structured_rule_payload(data):
+            return _create_alert_rule_config(request)
 
         rule_name = data.get("rule_name", "").strip()
         condition = data.get("condition", "").strip()
@@ -270,6 +283,11 @@ class ConfigurationNotificationsApiView(APIView):
 class ConfigurationSuppressionsApiView(APIView):
     permission_classes = [CanViewSecurityCenter]
 
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [CanManageSecurityCenter()]
+        return super().get_permissions()
+
     def get(self, request):
         suppressions = SecurityAlertSuppressionRule.objects.filter(is_active=True).order_by("-created_at")
 
@@ -296,6 +314,9 @@ class ConfigurationSuppressionsApiView(APIView):
             result.append(dto)
 
         return Response(result)
+
+    def post(self, request):
+        return _create_suppression_config(request)
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
@@ -867,8 +888,16 @@ class ConfigurationSourcePresetsApiView(APIView):
 class ConfigurationSourceCreateApiView(APIView):
     permission_classes = [CanViewSecurityCenter]
 
+    def get_permissions(self):
+        if self.request.method == "POST" and _is_source_config_payload(self.request.data or {}):
+            return [CanManageSecurityCenter()]
+        return super().get_permissions()
+
     def post(self, request):
         data = request.data
+
+        if _is_source_config_payload(data):
+            return _create_source_config(request)
 
         name = data.get("name", "").strip()
         code = data.get("code", "").strip()
@@ -1168,12 +1197,550 @@ def _normalize_extensions(ext_string):
 
 
 def _contains_secret_like_field(data):
-    suspicious_keys = ["password", "secret", "token", "api_key", "client_secret", "private_key"]
-    for key in data.keys():
+    suspicious_keys = [
+        "password",
+        "secret",
+        "token",
+        "api_key",
+        "client_secret",
+        "private_key",
+        "authorization",
+        "credential",
+        "connection_string",
+        "webhook",
+    ]
+    safe_operational_keys = {"match_tokens"}
+    for key, value in data.items():
         key_lower = key.lower()
+        if key_lower in safe_operational_keys:
+            continue
         if any(suspect in key_lower for suspect in suspicious_keys):
             return True
+        if isinstance(value, dict) and _contains_secret_like_field(value):
+            return True
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and _contains_secret_like_field(item):
+                    return True
     return False
+
+
+SOURCE_CONFIG_ALLOWED_FIELDS = {
+    "name",
+    "source_type",
+    "vendor",
+    "enabled",
+    "description",
+    "expected_frequency",
+    "expected_time_window_start",
+    "expected_time_window_end",
+    "mailbox_sender_patterns",
+    "mailbox_subject_patterns",
+    "parser_name",
+    "severity_mapping_json",
+    "metadata_json",
+}
+
+RULE_CONFIG_ALLOWED_FIELDS = {
+    "code",
+    "name",
+    "enabled",
+    "source_type",
+    "metric_name",
+    "condition_operator",
+    "threshold_value",
+    "threshold_json",
+    "severity",
+    "cooldown_minutes",
+    "dedup_window_minutes",
+    "auto_create_ticket",
+    "auto_create_evidence_container",
+    "description",
+}
+
+SUPPRESSION_ALLOWED_FIELDS = {
+    "name",
+    "source",
+    "source_id",
+    "event_type",
+    "severity",
+    "match_payload",
+    "scope_type",
+    "conditions_json",
+    "reason",
+    "owner",
+    "is_active",
+    "starts_at",
+    "expires_at",
+}
+
+
+def _is_source_config_payload(data):
+    source_config_markers = {
+        "expected_frequency",
+        "expected_time_window_start",
+        "expected_time_window_end",
+        "mailbox_sender_patterns",
+        "mailbox_subject_patterns",
+        "parser_name",
+        "severity_mapping_json",
+        "metadata_json",
+    }
+    return any(field in data for field in source_config_markers)
+
+
+def _is_structured_rule_payload(data):
+    structured_markers = {
+        "code",
+        "name",
+        "condition_operator",
+        "threshold_json",
+        "cooldown_minutes",
+        "dedup_window_minutes",
+        "auto_create_ticket",
+        "auto_create_evidence_container",
+    }
+    return any(field in data for field in structured_markers)
+
+
+def _create_source_config(request):
+    data = request.data or {}
+    if _contains_secret_like_field(data):
+        return Response(
+            {"error": "suspicious secret-like field detected, rejected for safety"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+
+    payload = _allowed_payload(data, SOURCE_CONFIG_ALLOWED_FIELDS)
+    name = _clean_string(payload.get("name"))
+    source_type = _clean_string(payload.get("source_type"))
+    expected_frequency = _clean_string(payload.get("expected_frequency")) or "daily"
+
+    if not name:
+        return Response({"error": "name required"}, status=http_status.HTTP_400_BAD_REQUEST)
+    if not source_type:
+        return Response({"error": "source_type required"}, status=http_status.HTTP_400_BAD_REQUEST)
+    if not _is_valid_source_type(source_type):
+        return Response(
+            {"error": "source_type must be slug-like (lowercase, alphanumeric, hyphen, underscore or dot)"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+    valid_frequencies = {choice[0] for choice in SecuritySourceConfig.FREQUENCY_CHOICES}
+    if expected_frequency not in valid_frequencies:
+        return Response(
+            {"error": f"expected_frequency must be one of: {', '.join(sorted(valid_frequencies))}"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+    if SecuritySourceConfig.objects.filter(name=name).exists():
+        return Response({"error": "name already exists"}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    sender_patterns, error = _as_json_list(payload, "mailbox_sender_patterns")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    subject_patterns, error = _as_json_list(payload, "mailbox_subject_patterns")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    severity_mapping, error = _as_json_dict(payload, "severity_mapping_json")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    metadata, error = _as_json_dict(payload, "metadata_json")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    start_time, error = _as_time(payload.get("expected_time_window_start"), "expected_time_window_start")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    end_time, error = _as_time(payload.get("expected_time_window_end"), "expected_time_window_end")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    source = SecuritySourceConfig.objects.create(
+        name=name,
+        source_type=source_type,
+        vendor=_clean_string(payload.get("vendor")),
+        enabled=bool(payload.get("enabled", True)),
+        description=_clean_string(payload.get("description")),
+        expected_frequency=expected_frequency,
+        expected_time_window_start=start_time,
+        expected_time_window_end=end_time,
+        mailbox_sender_patterns=sender_patterns,
+        mailbox_subject_patterns=subject_patterns,
+        parser_name=_clean_string(payload.get("parser_name")),
+        severity_mapping_json=severity_mapping,
+        metadata_json=metadata,
+        updated_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+    )
+
+    _audit_ai_config_create(request, "ai_copilot_create_source", source, payload.keys())
+    return Response(_build_source_config_dto(source), status=http_status.HTTP_201_CREATED)
+
+
+def _create_alert_rule_config(request):
+    data = request.data or {}
+    if _contains_secret_like_field(data):
+        return Response(
+            {"error": "suspicious secret-like field detected, rejected for safety"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+
+    payload = _allowed_payload(data, RULE_CONFIG_ALLOWED_FIELDS)
+    code = _clean_string(payload.get("code")).lower()
+    name = _clean_string(payload.get("name"))
+    condition_operator = _clean_string(payload.get("condition_operator")) or "gte"
+    severity = _clean_string(payload.get("severity")).lower() or Severity.WARNING
+
+    if not code:
+        return Response({"error": "code required"}, status=http_status.HTTP_400_BAD_REQUEST)
+    if not _is_valid_rule_code(code):
+        return Response(
+            {"error": "code must be slug-like (lowercase, alphanumeric, hyphen or underscore)"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+    if not name:
+        return Response({"error": "name required"}, status=http_status.HTTP_400_BAD_REQUEST)
+    if SecurityAlertRuleConfig.objects.filter(code=code).exists():
+        return Response({"error": "rule with this code already exists"}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    valid_operators = {choice[0] for choice in SecurityAlertRuleConfig.OPERATOR_CHOICES}
+    if condition_operator not in valid_operators:
+        return Response(
+            {"error": f"condition_operator must be one of: {', '.join(sorted(valid_operators))}"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+    valid_severities = {choice[0] for choice in Severity.choices}
+    if severity not in valid_severities:
+        return Response(
+            {"error": f"severity must be one of: {', '.join(sorted(valid_severities))}"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+
+    threshold_json, error = _as_json_dict(payload, "threshold_json")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    cooldown_minutes, error = _as_non_negative_int(payload.get("cooldown_minutes", 60), "cooldown_minutes")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    dedup_window_minutes, error = _as_non_negative_int(payload.get("dedup_window_minutes", 1440), "dedup_window_minutes")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    threshold_value = _clean_string(payload.get("threshold_value"))
+    if _looks_like_defender_critical_rule(payload, threshold_json):
+        cooldown_minutes = max(cooldown_minutes, 1440)
+        dedup_window_minutes = max(dedup_window_minutes, 1440)
+        payload["auto_create_ticket"] = True
+        payload["auto_create_evidence_container"] = True
+
+    rule = SecurityAlertRuleConfig.objects.create(
+        code=code,
+        name=name,
+        enabled=bool(payload.get("enabled", True)),
+        source_type=_clean_string(payload.get("source_type")),
+        metric_name=_clean_string(payload.get("metric_name")),
+        condition_operator=condition_operator,
+        threshold_value=threshold_value,
+        threshold_json=threshold_json,
+        severity=severity,
+        cooldown_minutes=cooldown_minutes,
+        dedup_window_minutes=dedup_window_minutes,
+        auto_create_ticket=bool(payload.get("auto_create_ticket", False)),
+        auto_create_evidence_container=bool(payload.get("auto_create_evidence_container", True)),
+        description=_clean_string(payload.get("description")),
+        updated_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+    )
+
+    _audit_ai_config_create(request, "ai_copilot_create_rule", rule, payload.keys())
+    return Response({"success": True, "rule": _build_rule_dto(rule)}, status=http_status.HTTP_201_CREATED)
+
+
+def _create_suppression_config(request):
+    data = request.data or {}
+    if _contains_secret_like_field(data):
+        return Response(
+            {"error": "suspicious secret-like field detected, rejected for safety"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+
+    payload = _allowed_payload(data, SUPPRESSION_ALLOWED_FIELDS)
+    name = _clean_string(payload.get("name"))
+    reason = _clean_string(payload.get("reason"))
+    owner = _clean_string(payload.get("owner"))
+    scope_type = _clean_string(payload.get("scope_type")) or "alert_type"
+    event_type = _clean_string(payload.get("event_type"))
+    severity = _clean_string(payload.get("severity")).lower()
+
+    if not name:
+        return Response({"error": "name required"}, status=http_status.HTTP_400_BAD_REQUEST)
+    if not reason:
+        return Response({"error": "reason required"}, status=http_status.HTTP_400_BAD_REQUEST)
+    if not owner:
+        return Response({"error": "owner required"}, status=http_status.HTTP_400_BAD_REQUEST)
+    if not _is_valid_source_type(scope_type):
+        return Response({"error": "scope_type must be slug-like"}, status=http_status.HTTP_400_BAD_REQUEST)
+    if severity:
+        valid_severities = {choice[0] for choice in Severity.choices}
+        if severity not in valid_severities:
+            return Response(
+                {"error": f"severity must be one of: {', '.join(sorted(valid_severities))}"},
+                status=http_status.HTTP_400_BAD_REQUEST,
+            )
+
+    match_payload, error = _as_json_dict(payload, "match_payload")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    conditions_json, error = _as_json_dict(payload, "conditions_json")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    source, error = _resolve_security_source(payload)
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    if not any([source, event_type, severity, match_payload, conditions_json]):
+        return Response(
+            {"error": "suppression too broad: add source, event_type, severity, match_payload or conditions_json"},
+            status=http_status.HTTP_400_BAD_REQUEST,
+        )
+
+    starts_at, error = _as_datetime(payload.get("starts_at"), "starts_at")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    expires_at, error = _as_datetime(payload.get("expires_at"), "expires_at")
+    if error:
+        return Response({"error": error}, status=http_status.HTTP_400_BAD_REQUEST)
+    if starts_at and expires_at and expires_at <= starts_at:
+        return Response({"error": "expires_at must be after starts_at"}, status=http_status.HTTP_400_BAD_REQUEST)
+
+    suppression = SecurityAlertSuppressionRule.objects.create(
+        name=name,
+        source=source,
+        event_type=event_type,
+        severity=severity,
+        match_payload=match_payload,
+        scope_type=scope_type,
+        conditions_json=conditions_json,
+        reason=reason,
+        owner=owner,
+        is_active=bool(payload.get("is_active", True)),
+        starts_at=starts_at,
+        expires_at=expires_at,
+        created_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+    )
+
+    _audit_ai_config_create(request, "ai_copilot_create_suppression", suppression, payload.keys())
+    response = _build_suppression_dto(suppression)
+    if not expires_at:
+        response["warnings"] = ["expires_at missing: suppression has no scheduled expiration"]
+    return Response(response, status=http_status.HTTP_201_CREATED)
+
+
+def _allowed_payload(data, allowed_fields):
+    return {field: data[field] for field in allowed_fields if field in data}
+
+
+def _clean_string(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _is_valid_source_type(value):
+    return bool(re.match(r"^[a-z0-9_.-]+$", value or ""))
+
+
+def _is_valid_rule_code(value):
+    return bool(re.match(r"^[a-z0-9_-]+$", value or ""))
+
+
+def _as_json_dict(payload, field):
+    value = payload.get(field, {})
+    if value in (None, ""):
+        return {}, None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}, f"{field} must be a valid JSON object"
+    if not isinstance(value, dict):
+        return {}, f"{field} must be a JSON object"
+    return value, None
+
+
+def _as_json_list(payload, field):
+    value = payload.get(field, [])
+    if value in (None, ""):
+        return [], None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("["):
+            try:
+                value = json.loads(stripped)
+            except json.JSONDecodeError:
+                return [], f"{field} must be a valid JSON list"
+        else:
+            value = [item.strip() for item in re.split(r"[\n,]+", value) if item.strip()]
+    if not isinstance(value, list):
+        return [], f"{field} must be a JSON list"
+    return [str(item).strip() for item in value if str(item).strip()], None
+
+
+def _as_time(value, field):
+    if value in (None, ""):
+        return None, None
+    parsed = parse_time(str(value))
+    if parsed is None:
+        return None, f"{field} must be HH:MM"
+    return parsed, None
+
+
+def _as_datetime(value, field):
+    if value in (None, ""):
+        return None, None
+    parsed = parse_datetime(str(value))
+    if parsed is None:
+        return None, f"{field} must be a valid datetime"
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed, None
+
+
+def _as_non_negative_int(value, field):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0, f"{field} must be a non-negative integer"
+    if parsed < 0:
+        return 0, f"{field} must be a non-negative integer"
+    return parsed, None
+
+
+def _looks_like_defender_critical_rule(payload, threshold_json):
+    combined = " ".join(
+        [
+            _clean_string(payload.get("source_type")),
+            _clean_string(payload.get("metric_name")),
+            _clean_string(payload.get("threshold_value")),
+            json.dumps(threshold_json, sort_keys=True),
+        ]
+    ).lower()
+    return (
+        _clean_string(payload.get("severity")).lower() == Severity.CRITICAL
+        and "defender" in combined
+        and ("cvss" in combined or "exposed" in combined)
+    )
+
+
+def _resolve_security_source(payload):
+    source_id = payload.get("source_id") or payload.get("source")
+    if source_id in (None, ""):
+        return None, None
+    try:
+        return SecuritySource.objects.get(pk=int(source_id)), None
+    except (TypeError, ValueError):
+        return None, "source_id must be numeric"
+    except SecuritySource.DoesNotExist:
+        return None, "source not found"
+
+
+def _audit_ai_config_create(request, action, instance, fields):
+    summary = {
+        "source": "ai_copilot",
+        "reviewed": True,
+        "fields": sorted(str(field) for field in fields),
+    }
+    audit_config_change(
+        request.user,
+        action,
+        instance,
+        field_name="reviewed_fields",
+        old_value="",
+        new_value=json.dumps(summary, sort_keys=True),
+        request=request,
+    )
+
+
+def _build_source_config_dto(source):
+    return {
+        "id": source.id,
+        "code": f"source-config-{source.id}",
+        "name": source.name,
+        "source_type": source.source_type,
+        "vendor": source.vendor,
+        "enabled": source.enabled,
+        "expected_frequency": source.expected_frequency,
+        "expected_time_window_start": source.expected_time_window_start.isoformat() if source.expected_time_window_start else None,
+        "expected_time_window_end": source.expected_time_window_end.isoformat() if source.expected_time_window_end else None,
+        "parser_name": source.parser_name,
+        "status": "active" if source.enabled else "disabled",
+        "origin": "manual",
+        "parser_names": [source.parser_name] if source.parser_name else ["unknown"],
+        "warning_messages": [],
+    }
+
+
+def _build_source_config_studio_dto(source):
+    warnings = []
+    if source.enabled and not source.parser_name:
+        warnings.append("Parser non configurato")
+    return {
+        "id": source.id,
+        "code": f"source-config-{source.id}",
+        "name": source.name,
+        "source_type": source.source_type,
+        "category": source.vendor.lower().replace(" ", "_") if source.vendor else "custom",
+        "status": "active" if source.enabled else "disabled",
+        "origin": "manual",
+        "parser_names": [source.parser_name] if source.parser_name else ["unknown"],
+        "mailbox_address": None,
+        "last_import_at": None,
+        "last_success_at": None,
+        "last_error_at": None,
+        "last_error_message": "",
+        "latest_run": None,
+        "warning_messages": warnings,
+        "managed_by": "admin_config",
+        "links": {
+            "configuration_url": "/security/admin/config/sources/",
+            "diagnostics_url": "/configuration?tab=test",
+        },
+    }
+
+
+def _build_rule_dto(rule):
+    return {
+        "code": rule.code,
+        "title": rule.name,
+        "enabled": rule.enabled,
+        "severity": rule.severity,
+        "when_summary": _build_when_summary(rule),
+        "then_summary": _build_then_summary(rule),
+        "dedup_summary": f"{rule.dedup_window_minutes} min",
+        "aggregation_summary": rule.metric_name or "N/A",
+        "last_match_at": rule.last_triggered_at.isoformat() if rule.last_triggered_at else None,
+        "matches_count": rule.trigger_count,
+        "status": "active" if rule.enabled else "disabled",
+        "warning_messages": [],
+    }
+
+
+def _build_suppression_dto(supp):
+    now = timezone.now()
+    is_expired = supp.expires_at and supp.expires_at < now
+    return {
+        "id": supp.id,
+        "code": f"supp-{supp.id}",
+        "type": _map_suppression_type(supp),
+        "title": supp.name,
+        "active": supp.is_active and not is_expired,
+        "reason": supp.reason or "N/A",
+        "owner": _safe_owner(supp),
+        "scope_summary": _build_scope_summary(supp),
+        "expires_at": supp.expires_at.isoformat() if supp.expires_at else None,
+        "matches_suppressed_count": supp.hit_count,
+        "created_at": supp.created_at.isoformat() if supp.created_at else None,
+        "updated_at": supp.updated_at.isoformat() if supp.updated_at else None,
+        "status": "expired" if is_expired else ("active" if supp.is_active else "disabled"),
+    }
 
 
 def _build_source_dto(source):
@@ -1482,6 +2049,48 @@ class GroupDetailApiView(APIView):
 
         group.delete()
         return Response({"deleted": True})
+
+
+class ConfigurationRuleSimulateApiView(APIView):
+    permission_classes = [CanViewSecurityCenter]
+
+    def post(self, request):
+        data = request.data or {}
+        rule = data.get("rule", {})
+        options = data.get("options", {})
+
+        if not rule:
+            return Response(
+                {"error": "rule required"},
+                status=http_status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate options
+        lookback_days = options.get("lookback_days", 30)
+        max_examples = options.get("max_examples", 10)
+
+        if not isinstance(lookback_days, int) or lookback_days < 1 or lookback_days > 365:
+            return Response(
+                {"error": "lookback_days must be between 1 and 365"},
+                status=http_status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(max_examples, int) or max_examples < 1 or max_examples > 100:
+            return Response(
+                {"error": "max_examples must be between 1 and 100"},
+                status=http_status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Run simulation
+        try:
+            result = simulate_alert_rule(rule, options)
+        except Exception as e:
+            return Response(
+                {"error": f"Simulation failed: {str(e)}"},
+                status=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(result, status=http_status.HTTP_200_OK)
 
 
 def _generate_rule_code(rule_name):

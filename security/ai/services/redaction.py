@@ -92,14 +92,16 @@ SENSITIVE_PATTERNS = [
     r"https?://[^/\s:@]+:[^/\s:@]+@[^\s]+",  # URLs with embedded credentials
     r"https?://[^\s]*(?:webhook|hooks\.slack(?:\.com)?|teams\.microsoft|outlook\.office|logic\.azure|powerautomate)[^\s]*",
     r"(?:Password|AccountKey|SharedAccessKey|Secret)\s*=\s*[^;,\s]+",
-    r"(?:token|api[_-]?key|secret|password)\s*[:=]\s*[A-Za-z0-9_\-./+=]{12,}",
+    r"(?:api\s*[_-]?\s*key|secret|password|token)\s*[:=]\s*[A-Za-z0-9_\-./+=]{8,}",  # Fixed pattern
     r"\b(?:xox[baprs]-|gh[pousr]_|glpat-|ya29\.|sk_live-|sk_test-|sk-)[A-Za-z0-9_\-\.]{16,}\b",
-    r"[A-Za-z0-9]{32,}",  # Long alphanumeric strings (likely tokens)
+    # r"[A-Za-z0-9]{32,}",  # Too aggressive - removed
     r"sk-[a-zA-Z0-9]{32,}",  # OpenAI-style keys
     r"pk-[a-zA-Z0-9]{32,}",  # Stripe public keys
     r"sk_live-[a-zA-Z0-9]{32,}",  # Stripe secret keys
     r"AIza[A-Za-z0-9\-_]{35}",  # Google API keys
     r"ya29\.[A-Za-z0-9\-_]+",  # Google OAuth tokens
+    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",  # Email addresses
+    r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b",  # IP addresses
 ]
 
 USEFUL_FIELDS = {
