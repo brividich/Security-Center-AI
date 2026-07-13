@@ -54,6 +54,14 @@ def _evaluate_vulnerability(event):
     is_critical = _rule_matches(critical_rule, cvss, payload) if critical_rule else (payload.get("severity") == Severity.CRITICAL or cvss >= 9)
     exposed_count = int(payload.get("exposed_devices", 0))
     exposed = _rule_matches(exposed_rule, exposed_count, payload) if exposed_rule else exposed_count > 0
+
+    # Fail-closed: devices are exposed but neither the score nor the severity could be
+    # read. `cvss` above is 0 only because nothing could be parsed - acting on that 0
+    # would silently drop a possibly critical CVE. Raise it for manual review instead.
+    if not is_critical and exposed and payload.get("cvss_unparsed") and payload.get("severity_unrecognized"):
+        _alert_unreadable_vulnerability(event, payload)
+        return
+
     if is_critical and exposed:
         trace = {
             "decision": "alert",
@@ -93,6 +101,41 @@ def _evaluate_vulnerability(event):
     else:
         event.decision_trace = {"decision": "kpi_only", "reason": "Vulnerability not both critical and exposed"}
         event.save(update_fields=["decision_trace"])
+
+
+def _alert_unreadable_vulnerability(event, payload):
+    """Alert on a vulnerability we could not read, rather than scoring it 0 and moving on."""
+    trace = {
+        "decision": "alert",
+        "rule": "Vulnerability data unreadable while devices are exposed => fail-closed manual review",
+        "reason": "Neither CVSS nor severity could be parsed; the score is NOT assumed to be 0",
+        "cve": payload.get("cve"),
+        "exposed_devices": payload.get("exposed_devices"),
+        "cvss_unparsed": True,
+        "severity_unrecognized": True,
+    }
+    alert, alert_created = _get_or_create_active_alert(
+        source=event.source,
+        event=event,
+        title=f"Unreadable vulnerability data for {payload.get('cve') or 'unknown CVE'} (manual review)",
+        severity=Severity.HIGH,
+        dedup_hash=event.dedup_hash,
+        decision_trace=trace,
+    )
+    trace["alert_created"] = alert_created
+    _store_alert_decision_trace(alert, trace, alert_created)
+    event.decision_trace = trace
+    event.save(update_fields=["decision_trace"])
+    # Evidence, so the operator can see the raw excerpt that defeated the parser. No
+    # remediation ticket: the data is not trustworthy enough to drive remediation.
+    build_evidence_container(event.source, alert.title, alert=alert, event=event, decision_trace=trace)
+    SecurityAlertActionLog.objects.create(
+        alert=alert,
+        action="alert_created" if alert_created else "alert_reused",
+        details=trace,
+    )
+    if alert_created:
+        notify_alert_created(alert)
 
 
 def _evaluate_backup(event):

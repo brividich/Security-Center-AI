@@ -39,6 +39,18 @@ Patch identifier: SEC-FIXTURE-01
 - `python manage.py test security.tests` - 701 tests, 24 new. The 8 pre-existing failures in `test_ai_memory_embeddings` / `test_ai_memory_evaluation` (`FieldError: Cannot resolve keyword 'document_id'`) are unrelated and unchanged.
 - `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes. `python scripts/check_fixture_hygiene.py` - OK.
 - Not covered by this patch: the `notify_on_sla_breach` flag (no SLA engine exists yet).
+
+### Fixed (SEC-FAILCLOSED-01)
+- An unreadable CVSS no longer becomes `0`. `0` reads as "harmless" to every downstream threshold, so a critical CVE would slip under the `>= 9.0` rule the moment the vendor changed the mail layout - with no warning anywhere. The parser now returns an explicit `cvss_unparsed` flag, distinguishes "no CVSS mentioned" from "CVSS present but unreadable", rejects out-of-range scores, and emits a `parse_warning`. Unrecognized severities are flagged with `severity_unrecognized` instead of silently defaulting to `high`.
+- Fail-closed rule: a vulnerability with exposed devices whose score AND severity are both unreadable now raises a HIGH alert for manual review (`defender_unreadable_vulnerability`) with an evidence container, instead of being scored 0 and filed as KPI-only. No remediation ticket is created: the data is not trustworthy enough to drive a fix.
+- `parser_engine._coerce_cvss` guards the DB write: a garbled value can no longer raise mid-pipeline nor be stored as a confident `0.0`. The column stores 0 (it cannot hold "unknown") but the payload keeps the flag, and the rules read the flag, never the bare 0.
+- Attachments are no longer truncated silently. The old hard-coded 10 000-character cut mangled a realistic 15 KB authentication CSV, so per-user/per-IP thresholds were computed on partial rows and alert candidates silently disappeared. The limit is now 500 000 characters (`SECURITY_ATTACHMENT_MAX_CHARS`), and any truncation is logged as a warning and recorded on the source file (`content_truncated`, `content_chars`, `parse_warnings`).
+- CSV attachments are stored with `file_type=csv` instead of being mislabelled `email`.
+- A crashing parser is now logged with `logger.exception` and the failing parser name is recorded on the item. Previously a vendor format change left the source silently FAILED in a table nobody reads: the source stopped producing alerts and the system looked calm.
+
+### Validation (SEC-FAILCLOSED-01)
+- `python manage.py test security.tests` - 718 tests, 17 new. The 8 pre-existing failures in `test_ai_memory_embeddings` / `test_ai_memory_evaluation` (`FieldError: Cannot resolve keyword 'document_id'`) are unrelated and unchanged.
+- `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes. `python scripts/check_fixture_hygiene.py` - OK.
 ## [0.11.2] - 2026-05-06
 
 Patch identifiers: AI-MEMORY-02C, AI-MEMORY-SEC-01, AI-DOC-01
