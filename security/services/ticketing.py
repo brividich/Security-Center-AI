@@ -2,6 +2,7 @@ from django.utils import timezone
 
 from security.models import SecurityAlertActionLog, SecurityRemediationTicket, Severity, Status
 from security.services.dedup import make_hash
+from security.services.notifications import notify_ticket_created
 
 
 ACTIVE_TICKET_STATUSES = [Status.OPEN, Status.IN_PROGRESS, Status.NEW]
@@ -95,6 +96,8 @@ def create_or_update_remediation_ticket_for_vulnerability_finding(source, alert,
             "evidence_id": str(evidence.id) if evidence else None,
         },
     )
+    if created:
+        notify_ticket_created(ticket)
     return ticket, created
 
 
@@ -154,4 +157,5 @@ def create_backup_ticket(source, alert, evidence, job_name, dedup_hash):
     if evidence:
         ticket.evidence.add(evidence)
     SecurityAlertActionLog.objects.create(alert=alert, ticket=ticket, action="backup_ticket_created")
+    notify_ticket_created(ticket)
     return ticket

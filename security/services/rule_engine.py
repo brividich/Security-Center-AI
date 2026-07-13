@@ -4,6 +4,7 @@ from django.utils import timezone
 from security.models import SecurityAlert, SecurityAlertActionLog, SecurityAlertRuleConfig, SecurityAlertSuppressionRule, SecurityEventRecord, Severity, Status
 from security.services.alert_lifecycle import ACTIVE_ALERT_STATUSES
 from security.services.evidence_builder import build_evidence_container
+from security.services.notifications import notify_alert_created
 from security.services.ticketing import create_backup_ticket, create_or_update_remediation_ticket_for_vulnerability_finding
 
 
@@ -85,6 +86,8 @@ def _evaluate_vulnerability(event):
             action="alert_created" if alert_created else "alert_reused",
             details=trace,
         )
+        if alert_created:
+            notify_alert_created(alert)
         _mark_rule_triggered(critical_rule)
         _mark_rule_triggered(exposed_rule)
     else:
@@ -155,6 +158,8 @@ def _evaluate_vpn(event):
             action="alert_created" if alert_created else "alert_reused",
             details=trace,
         )
+        if alert_created:
+            notify_alert_created(alert)
         event.decision_trace = trace
     else:
         event.decision_trace = {"decision": "kpi_only", "reason": "VPN volume below threshold", "count": count, "threshold": threshold}

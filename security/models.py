@@ -534,6 +534,37 @@ class SecurityNotificationChannel(models.Model):
         return self.name
 
 
+class SecurityNotificationLog(models.Model):
+    """Audit trail of every outbound notification attempt, and the source of truth for
+    channel cooldown. A security tool must be able to answer "were we told, and when?"."""
+
+    class Outcome(models.TextChoices):
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        COOLDOWN = "cooldown", "Suppressed by cooldown"
+
+    channel = models.ForeignKey(SecurityNotificationChannel, on_delete=models.CASCADE, related_name="notification_logs")
+    alert = models.ForeignKey(SecurityAlert, on_delete=models.SET_NULL, null=True, blank=True, related_name="notification_logs")
+    ticket = models.ForeignKey("SecurityRemediationTicket", on_delete=models.SET_NULL, null=True, blank=True, related_name="notification_logs")
+    event_kind = models.CharField(max_length=32, db_index=True)
+    severity = models.CharField(max_length=24, choices=Severity.choices, blank=True, db_index=True)
+    dedup_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    outcome = models.CharField(max_length=16, choices=Outcome.choices, db_index=True)
+    recipients_count = models.PositiveSmallIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["channel", "dedup_hash", "event_kind", "created_at"]),
+            models.Index(fields=["outcome", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.channel_id}:{self.event_kind}:{self.outcome}"
+
+
 class SecurityTicketConfig(models.Model):
     aggregation_strategy = models.CharField(max_length=32, default="per_product")
     default_assignee = models.CharField(max_length=160, blank=True)

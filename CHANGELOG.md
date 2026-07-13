@@ -25,6 +25,20 @@ Patch identifier: SEC-FIXTURE-01
 ### Validation (SEC-SPOOF-01)
 - `python manage.py test security.tests` - 677 tests, 21 new. The 8 pre-existing failures in `test_ai_memory_embeddings` / `test_ai_memory_evaluation` (`FieldError: Cannot resolve keyword 'document_id'`) are unrelated to this patch and unchanged.
 - `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes.
+
+### Added (SEC-NOTIFY-01)
+- Outbound notification delivery. `SecurityNotificationChannel` was configuration with nothing behind it: the backend contained no `send_mail` and no webhook call, so a critical CVE raised at 22:00 reached nobody until somebody happened to open the dashboard. New `security/services/notifications.py` delivers alerts and remediation tickets over email and Teams webhooks.
+- New `SecurityNotificationLog` model (migration `0011`): every delivery attempt is audited (channel, alert/ticket, outcome, recipient count, error) and it is the source of truth for cooldown.
+- Cooldown is scoped per (channel, dedup_hash, event kind): a recurring alert cannot become a mail flood, while an unrelated alert is never silenced by a noisy one.
+- Fail-safe by design: a broken channel (SMTP down, webhook unreachable) is logged with `outcome=failed` and swallowed. Detection keeps working; alerts, evidence and tickets are still persisted.
+- Messages carry only title, severity, source, the decision rule that fired and identifiers, plus a deep link (`SECURITY_CENTER_BASE_URL`). Never raw report bodies, mailbox payloads, evidence internals or secrets. The webhook URL is treated as a secret and never logged.
+- Added `python manage.py send_security_test_notification --channel NAME` (and `--list`) to prove a channel can deliver, using a synthetic payload, without waiting for a real alert.
+- Added email settings (`EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, `EMAIL_TIMEOUT`, `DEFAULT_FROM_EMAIL`) and `SECURITY_CENTER_BASE_URL`, documented in `.env.example`. With no `EMAIL_HOST` configured the console backend is used, so an unconfigured deployment prints the notification instead of dropping it silently.
+
+### Validation (SEC-NOTIFY-01)
+- `python manage.py test security.tests` - 701 tests, 24 new. The 8 pre-existing failures in `test_ai_memory_embeddings` / `test_ai_memory_evaluation` (`FieldError: Cannot resolve keyword 'document_id'`) are unrelated and unchanged.
+- `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes. `python scripts/check_fixture_hygiene.py` - OK.
+- Not covered by this patch: the `notify_on_sla_breach` flag (no SLA engine exists yet).
 ## [0.11.2] - 2026-05-06
 
 Patch identifiers: AI-MEMORY-02C, AI-MEMORY-SEC-01, AI-DOC-01
