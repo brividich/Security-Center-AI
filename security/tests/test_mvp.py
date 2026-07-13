@@ -469,7 +469,10 @@ class ApiPipelineTests(TestCase):
             {
                 "subject": "Microsoft Defender vulnerability notification",
                 "body": "CVE-2025-7777\nAffected product: Edge\nCVSS: 9.8\nExposed devices: 2",
-                "sender": "defender@example.test",
+                # Provenance is established by the sender alone: an arbitrary sender with
+                # Defender-looking content must NOT reach the alert path (see
+                # security/tests/test_sender_spoofing.py).
+                "sender": "defender-noreply@microsoft.com",
             },
             format="json",
         )

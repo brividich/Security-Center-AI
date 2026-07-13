@@ -629,6 +629,15 @@ class SecurityMailboxSource(models.Model):
     mailbox_address = models.EmailField(blank=True)
     description = models.TextField(blank=True)
     sender_allowlist_text = models.TextField(blank=True)
+    require_verified_sender = models.BooleanField(
+        default=False,
+        help_text=(
+            "Accept a message only if the receiving mail system authenticated the sender "
+            "(DKIM or SPF pass, no DMARC failure). Requires a provider that exposes the "
+            "Authentication-Results header, e.g. Microsoft Graph. Fail-closed: messages "
+            "without the header are rejected."
+        ),
+    )
     subject_include_text = models.TextField(blank=True)
     subject_exclude_text = models.TextField(blank=True)
     body_include_text = models.TextField(blank=True)

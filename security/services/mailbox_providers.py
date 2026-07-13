@@ -47,6 +47,10 @@ class MailboxMessage:
     body_text: str
     body_html: str
     attachments: List[MailboxAttachment]
+    # Sender authentication (DKIM/SPF/DMARC) as reported by the receiving mail system.
+    # Defaults are fail-closed: unknown provenance is NOT considered verified.
+    sender_verified: bool = False
+    auth_summary: str = ""
 
 
 class MailboxProvider(ABC):
@@ -99,7 +103,9 @@ class GraphMailboxProvider(MailboxProvider):
     def _get_messages(self, token: str, source, limit: int) -> List[dict]:
         top = max(1, min(int(limit or 50), 500))
         folder = str(get_setting("GRAPH_MAIL_FOLDER", "") or "").strip() or os.getenv("GRAPH_MAIL_FOLDER", "").strip() or "Inbox"
-        select_fields = "id,internetMessageId,subject,from,toRecipients,receivedDateTime,body,hasAttachments"
+        # internetMessageHeaders carries Authentication-Results (DKIM/SPF/DMARC), used to
+        # tell a genuine vendor notification from a spoofed look-alike.
+        select_fields = "id,internetMessageId,subject,from,toRecipients,receivedDateTime,body,hasAttachments,internetMessageHeaders"
         params = urllib.parse.urlencode(
             {
                 "$top": top,
@@ -231,9 +237,41 @@ def _safe_graph_error(exc: urllib.error.HTTPError) -> str:
     return "graph_error"
 
 
+def evaluate_sender_authentication(headers) -> tuple[bool, str]:
+    """Read Authentication-Results from Graph ``internetMessageHeaders``.
+
+    Returns ``(verified, summary)``. Verified requires DKIM **or** SPF to pass and no
+    explicit DMARC failure. Fail-closed: a missing header means not verified.
+
+    The header is written by the receiving mail system (Exchange Online), not by the
+    sender, so it cannot be forged by whoever composed the message.
+    """
+    raw = ""
+    for header in headers or []:
+        name = str((header or {}).get("name") or "").strip().lower()
+        if name in {"authentication-results", "arc-authentication-results"}:
+            raw += " " + str((header or {}).get("value") or "")
+    text = raw.strip().lower()
+    if not text:
+        return False, ""
+
+    dkim_pass = "dkim=pass" in text
+    spf_pass = "spf=pass" in text
+    dmarc_fail = "dmarc=fail" in text
+    verified = (dkim_pass or spf_pass) and not dmarc_fail
+
+    parts = []
+    for label, ok in (("dkim", dkim_pass), ("spf", spf_pass)):
+        parts.append(f"{label}={'pass' if ok else 'not-pass'}")
+    if dmarc_fail:
+        parts.append("dmarc=fail")
+    return verified, " ".join(parts)
+
+
 def _message_from_graph_item(item: dict, mailbox_address: str, attachments: List[MailboxAttachment]) -> MailboxMessage:
     body = item.get("body") or {}
     sender = ((item.get("from") or {}).get("emailAddress") or {}).get("address") or ""
+    sender_verified, auth_summary = evaluate_sender_authentication(item.get("internetMessageHeaders"))
     recipients = [
         (recipient.get("emailAddress") or {}).get("address")
         for recipient in item.get("toRecipients", [])
@@ -253,4 +291,6 @@ def _message_from_graph_item(item: dict, mailbox_address: str, attachments: List
         body_text=body.get("content") or "",
         body_html="",
         attachments=attachments,
+        sender_verified=sender_verified,
+        auth_summary=auth_summary,
     )

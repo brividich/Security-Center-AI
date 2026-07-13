@@ -472,6 +472,7 @@ class SyntheticFixturesPipelineTests(TestCase):
         message = self._make_message(
             subject="Microsoft Defender - Vulnerability Notification: CVE-2024-99001",
             body=FAKE_DEFENDER_CVE_BODY,
+            sender="no-reply@microsoft.com",  # provenance comes from the sender, not the body
         )
 
         result1 = process_mailbox_message(message, dry_run=False)

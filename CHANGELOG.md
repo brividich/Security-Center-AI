@@ -14,6 +14,17 @@ Patch identifier: SEC-FIXTURE-01
 ### Validation
 - `python manage.py test security.tests.test_watchguard_mvp` - 20 tests OK
 - `python scripts/check_fixture_hygiene.py` - OK (verified it fails on a probe containing the original real values)
+
+### Security (SEC-SPOOF-01)
+- Fixed a spoofing flaw that let anyone able to deliver a mail into the monitored mailbox impersonate Microsoft Defender and mint CRITICAL alerts, evidence containers and remediation tickets.
+- `microsoft_defender_vulnerability_notification_email_parser.can_parse` matched on `sender + subject + body` concatenated: writing `defender-noreply@microsoft.com` (or "Microsoft Defender" plus a CVE id) in the BODY was enough to be parsed as a genuine notification. Provenance is now established from the sender field ALONE, anchored on a trusted domain (setting `SECURITY_DEFENDER_TRUSTED_SENDER_DOMAINS`, default `microsoft.com`). Subject and body are attacker-controlled and now only select the report FORMAT, once provenance is settled.
+- `should_accept_message` tested the sender allowlist with a substring match, so the entry `microsoft.com` also accepted the look-alike `defender-noreply@microsoft.com.attacker.io`. Matching is now anchored: a full address must match exactly, a domain entry must match `@domain` as a suffix. Subdomains are no longer implied; display-name senders (`Name <a@b.com>`) are normalized.
+- Added an opt-in `SecurityMailboxSource.require_verified_sender` gate (migration `0010`): a message is accepted only if the receiving mail system authenticated the sender (DKIM or SPF pass, no DMARC failure), read from the `Authentication-Results` header exposed by Microsoft Graph through `internetMessageHeaders`. Fail-closed: a missing header is not verified.
+- Updated two tests that encoded the vulnerable behaviour (a CRITICAL Defender alert raised from an arbitrary sender) to use a legitimate Microsoft sender.
+
+### Validation (SEC-SPOOF-01)
+- `python manage.py test security.tests` - 677 tests, 21 new. The 8 pre-existing failures in `test_ai_memory_embeddings` / `test_ai_memory_evaluation` (`FieldError: Cannot resolve keyword 'document_id'`) are unrelated to this patch and unchanged.
+- `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes.
 ## [0.11.2] - 2026-05-06
 
 Patch identifiers: AI-MEMORY-02C, AI-MEMORY-SEC-01, AI-DOC-01

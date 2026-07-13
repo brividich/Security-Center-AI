@@ -104,11 +104,63 @@ def run_mailbox_ingestion(source: SecurityMailboxSource, *, limit: Optional[int]
     return run
 
 
+def normalize_sender_address(raw_sender: str) -> str:
+    """Return the bare, lowercase email address of a sender.
+
+    Accepts both ``user@example.com`` and ``Display Name <user@example.com>``.
+    Returns "" when no address can be extracted.
+    """
+    sender = str(raw_sender or "").strip().lower()
+    if "<" in sender and ">" in sender:
+        sender = sender[sender.rfind("<") + 1: sender.rfind(">")].strip()
+    return sender if "@" in sender else ""
+
+
+def sender_matches_allowlist(raw_sender: str, allowlist_text: str) -> bool:
+    """Anchored sender check. NEVER a substring match.
+
+    A substring test (``entry in sender``) accepts look-alike domains: the entry
+    ``defender-noreply@microsoft.com`` would also match the spoofed sender
+    ``defender-noreply@microsoft.com.attacker.io``. Since a matched sender leads to
+    parsing, alerts and auto-created tickets, provenance must be exact.
+
+    Allowlist entries are one per line and may be:
+      - a full address (``noreply@vendor.com``) -> the sender must be exactly that;
+      - a domain (``vendor.com``) or ``@vendor.com`` -> the sender must end with
+        ``@vendor.com``. Subdomains are NOT implied: ``mail.vendor.com`` must be
+        listed explicitly.
+    """
+    entries = [entry.strip().lower() for entry in (allowlist_text or "").splitlines() if entry.strip()]
+    if not entries:
+        return True  # no allowlist configured: this filter does not apply
+
+    sender = normalize_sender_address(raw_sender)
+    if not sender:
+        return False
+
+    for entry in entries:
+        if "@" in entry and not entry.startswith("@"):
+            if sender == entry:  # full address: exact match only
+                return True
+        else:
+            domain = entry.lstrip("@")
+            if domain and sender.endswith("@" + domain):
+                return True
+    return False
+
+
 def should_accept_message(source: SecurityMailboxSource, raw_message: MailboxMessage) -> bool:
-    if source.sender_allowlist_text:
-        allowed_senders = [s.strip() for s in source.sender_allowlist_text.split("\n") if s.strip()]
-        if allowed_senders and not any(sender in raw_message.sender for sender in allowed_senders):
-            return False
+    if source.sender_allowlist_text and not sender_matches_allowlist(raw_message.sender, source.sender_allowlist_text):
+        return False
+
+    # Fail-closed: when the source is marked as requiring verified provenance, a message
+    # whose DKIM/SPF/DMARC results are missing or failing is rejected outright.
+    if getattr(source, "require_verified_sender", False) and not raw_message.sender_verified:
+        logger.warning(
+            "Rejected message from %s on source %s: sender authentication not verified (%s)",
+            raw_message.sender, source.code, raw_message.auth_summary or "no Authentication-Results header",
+        )
+        return False
 
     if source.subject_include_text:
         include_patterns = [p.strip() for p in source.subject_include_text.split("\n") if p.strip()]
