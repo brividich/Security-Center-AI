@@ -23,8 +23,8 @@ from security.services.rule_engine import evaluate_security_rules
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "watchguard"
-ALLOWED_CSV = "NovicromFW_Authentication_Allowed_2026-04-25T00_00_to_2026-04-25T23_59.csv"
-DENIED_CSV = "NovicromFW_Authentication_Denied_2026-04-25T00_00_to_2026-04-25T23_59.csv"
+ALLOWED_CSV = "ExampleFW_Authentication_Allowed_2026-04-25T00_00_to_2026-04-25T23_59.csv"
+DENIED_CSV = "ExampleFW_Authentication_Denied_2026-04-25T00_00_to_2026-04-25T23_59.csv"
 
 
 class WatchGuardParserTests(TestCase):
@@ -32,10 +32,10 @@ class WatchGuardParserTests(TestCase):
         parsed = parse_watchguard_firebox_authentication_allowed_csv((FIXTURES / ALLOWED_CSV).read_text(), source_name=ALLOWED_CSV)
 
         self.assertEqual(parsed["vendor"], "watchguard")
-        self.assertEqual(parsed["firebox_name"], "NovicromFW")
+        self.assertEqual(parsed["firebox_name"], "ExampleFW")
         self.assertEqual(len(parsed["records"]), 166)
-        self.assertEqual(parsed["records"][0]["user"], "f.gentile@cnovicrom.local")
-        self.assertEqual(parsed["records"][0]["source_ip"], "91.80.95.240")
+        self.assertEqual(parsed["records"][0]["user"], "utente.test@example.local")
+        self.assertEqual(parsed["records"][0]["source_ip"], "10.99.99.10")
         self.assertEqual(parsed["records"][0]["duration_seconds"], 1887)
         self.assertEqual(parsed["metrics"]["watchguard_sslvpn_allowed_count"], 166)
         self.assertEqual(parsed["metrics"]["watchguard_sslvpn_unique_users"], 2)
@@ -80,7 +80,7 @@ class WatchGuardParserTests(TestCase):
     def test_dimension_executive_summary_extracts_kpis_and_botnet_warning(self):
         text = """
         WatchGuard Dimension Executive Summary
-        Firebox: NovicromFW
+        Firebox: ExampleFW
         Period: 2026-04-25 00:00 - 2026-04-25 23:59
         Malware Attacks 7.67K scanned 0 blocked 0 detected
         Network Attacks 16.5M scanned
@@ -89,7 +89,7 @@ class WatchGuardParserTests(TestCase):
         """
         parsed = parse_watchguard_dimension_executive_summary(text)
 
-        self.assertEqual(parsed["firebox_name"], "NovicromFW")
+        self.assertEqual(parsed["firebox_name"], "ExampleFW")
         self.assertEqual(parsed["report_date"], "2026-04-25")
         self.assertEqual(parsed["metrics"]["watchguard_malware_scanned_count"], 7670)
         self.assertEqual(parsed["metrics"]["watchguard_malware_detected_count"], 0)

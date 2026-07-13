@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+Patch identifier: SEC-FIXTURE-01
+
+### Security
+- Removed real WatchGuard Firebox exports from `security/tests/fixtures/watchguard/` (16 files, 4.3 MB): 14 unused PDF reports plus an SSL VPN authentication CSV containing real employee usernames, public home source IPs and connection timestamps. The files were tracked in git and published on a public GitHub repository, violating the synthetic-data-only policy in `CLAUDE.md`.
+- Purged the files from the whole git history with `git filter-repo` and force-pushed the rewritten `main`. NOTE: data exposed before the rewrite must be treated as disclosed; GitHub may still serve blobs through the pre-rewrite commit SHA until its object cache is purged.
+- Sanitized `security/tests/test_watchguard_mvp.py`, which hardcoded a real username and a real public IP as expected assertion values.
+- Replaced the fixtures with synthetic equivalents (`ExampleFW_*`, `utente.test@example.local`, `10.99.99.x`) preserving the record counts and thresholds the tests rely on. The unused PDF reports were not recreated.
+- Added `scripts/check_fixture_hygiene.py`: fails on real-data indicators under `security/tests/` (internal AD domain, real firewall hostname, company name, non-documentation public IPs, binary fixtures). Installable as a pre-commit hook with `--install-hook`.
+
+### Validation
+- `python manage.py test security.tests.test_watchguard_mvp` - 20 tests OK
+- `python scripts/check_fixture_hygiene.py` - OK (verified it fails on a probe containing the original real values)
 ## [0.11.2] - 2026-05-06
 
 Patch identifiers: AI-MEMORY-02C, AI-MEMORY-SEC-01, AI-DOC-01
