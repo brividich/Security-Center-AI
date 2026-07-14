@@ -1,5 +1,6 @@
 import io
 import json
+from contextlib import ExitStack
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -133,9 +134,32 @@ class AIMemoryEvaluationServiceTests(TestCase):
 
     @override_settings(AI_MEMORY_RETRIEVAL_MODE="hybrid_keyword", AI_MEMORY_EMBEDDINGS_ENABLED=False)
     def test_evaluation_does_not_call_external_embedding_provider(self):
-        with patch("security.ai.services.memory.embedding_provider.AIProviderEmbeddingProvider.embed_text") as mock_external:
+        """The benchmark must stay offline: no corpus text may reach a third party.
+
+        This used to patch `AIProviderEmbeddingProvider`, a class that does not exist
+        (it was renamed). `mock.patch` raised AttributeError, so the property was never
+        actually verified. Patch the three real external providers instead.
+        """
+        base = "security.ai.services.memory.embedding_provider"
+        external_providers = (
+            f"{base}.OpenAICompatibleEmbeddingProvider",
+            f"{base}.NvidiaNimEmbeddingProvider",
+            f"{base}.LocalHttpEmbeddingProvider",
+        )
+
+        with ExitStack() as stack:
+            mocks = [
+                (
+                    stack.enter_context(patch(f"{target}.embed_text")),
+                    stack.enter_context(patch(f"{target}.embed_batch")),
+                )
+                for target in external_providers
+            ]
             run_retrieval_evaluation(mode="hybrid_keyword", top_k=5)
-        mock_external.assert_not_called()
+
+        for embed_text, embed_batch in mocks:
+            embed_text.assert_not_called()
+            embed_batch.assert_not_called()
 
 
 class AIMemoryEvaluationCommandTests(TestCase):

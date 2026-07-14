@@ -191,7 +191,11 @@ class MockOpenAICompatibleProvider(BaseEmbeddingProvider):
             raise RuntimeError("Rate limit exceeded")
 
         if self._wrong_dimensions:
-            return [0.0] * (self._dimensions + 100)
+            # Mirror the real providers: they all run the returned vector through
+            # BaseEmbeddingProvider._validate_dimensions before handing it back. The mock
+            # used to skip that call, so the guard was never actually exercised and
+            # test_dimension_mismatch_raises_error could not pass.
+            self._validate_dimensions([0.0] * (self._dimensions + 100))
 
         # Return deterministic mock embedding based on text hash
         import hashlib
@@ -209,6 +213,7 @@ class MockOpenAICompatibleProvider(BaseEmbeddingProvider):
         if norm > 0:
             vector = [v / norm for v in vector]
 
+        self._validate_dimensions(vector)
         return vector
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
@@ -1127,14 +1132,20 @@ class EmbeddingDiagnosticsTests(TestCase):
         )
 
     def test_get_active_embedding_provider(self):
-        """Should return provider info."""
+        """Should return provider info, and never a secret.
+
+        The keys are `provider_name` / `model_name` (as documented on the function and
+        consumed by get_embedding_diagnostics). This test used to assert `name` / `model`,
+        keys that never existed, so it had been failing since it was written.
+        """
         provider_info = get_active_embedding_provider()
 
-        self.assertIn("name", provider_info)
-        self.assertIn("model", provider_info)
+        self.assertIn("provider_name", provider_info)
+        self.assertIn("model_name", provider_info)
         self.assertIn("dimensions", provider_info)
         self.assertIn("configured", provider_info)
         self.assertNotIn("api_key", provider_info)
+        self.assertNotIn("api_key", str(provider_info).lower())
 
     def test_is_embedding_provider_configured(self):
         """Should check if provider is configured."""
@@ -1196,9 +1207,21 @@ class EmbeddingDiagnosticsTests(TestCase):
         self.assertIn("by_model", distribution)
         self.assertIn("by_dimensions", distribution)
 
-        # Check that raw data is not included
-        self.assertNotIn("embedding", str(distribution))
-        self.assertNotIn("text", str(distribution))
+        # No raw data must leak. The old assertion was `assertNotIn("embedding", str(...))`,
+        # which can never pass: the legitimate key `total_embeddings` contains that
+        # substring. Assert the property that actually matters instead: the payload is
+        # counters only - no vectors, no chunk text.
+        self.assertNotIn("raw_text", str(distribution))
+        for key, value in distribution.items():
+            with self.subTest(key=key):
+                self.assertNotIsInstance(value, (list, tuple), "vectors must never be returned")
+                if isinstance(value, dict):
+                    self.assertTrue(
+                        all(isinstance(count, int) for count in value.values()),
+                        "grouped values must be counts, not payloads",
+                    )
+                else:
+                    self.assertIsInstance(value, int)
 
     def test_is_pgvector_available(self):
         """Should check pgvector availability."""

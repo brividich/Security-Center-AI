@@ -38,6 +38,18 @@ Patch identifier: SEC-FIXTURE-01
 ### Validation (SEC-NOTIFY-01)
 - `python manage.py test security.tests` - 701 tests, 24 new. The 8 pre-existing failures in `test_ai_memory_embeddings` / `test_ai_memory_evaluation` (`FieldError: Cannot resolve keyword 'document_id'`) are unrelated and unchanged.
 - `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes. `python scripts/check_fixture_hygiene.py` - OK.
+
+### Fixed (SEC-AIMEM-01)
+- `rebuild_ai_memory_index --document-id` crashed with `FieldError: Cannot resolve keyword 'document_id'`. The queryset is over `AIKnowledgeDocument`, whose column is `id`; `document_id` only exists on `AIKnowledgeChunk`. Rebuilding the index for a single document was therefore impossible in production, not just in tests.
+- Repaired four AI-memory tests that had never been able to pass, and which were masking the state of the suite:
+  - `test_get_active_embedding_provider` asserted the keys `name` / `model`, which the function never returned (it documents and returns `provider_name` / `model_name`).
+  - `test_get_embedding_provider_distribution` asserted `assertNotIn("embedding", str(distribution))`, which can never hold: the legitimate key `total_embeddings` contains that substring. Replaced with the property that matters - the payload is counters only, never vectors or chunk text.
+  - `test_dimension_mismatch_raises_error`: the mock provider returned an oversized vector without running it through `BaseEmbeddingProvider._validate_dimensions`, unlike every real provider, so the guard was never exercised.
+  - `test_evaluation_does_not_call_external_embedding_provider` patched `AIProviderEmbeddingProvider`, a class that no longer exists, so `mock.patch` raised AttributeError and the safety property (the benchmark must stay offline and send no corpus text to a third party) had never actually been verified. It now patches the three real external providers and asserts both `embed_text` and `embed_batch` are never called.
+
+### Validation (SEC-AIMEM-01)
+- `python manage.py test security.tests` - **718 tests, all green**. The suite had 8 failing tests before this patch.
+- `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes.
 - Not covered by this patch: the `notify_on_sla_breach` flag (no SLA engine exists yet).
 
 ### Fixed (SEC-FAILCLOSED-01)
