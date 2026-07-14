@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import List, Optional
 
 from django.utils import timezone
@@ -26,6 +26,20 @@ GRAPH_API_BASE_URL = "https://graph.microsoft.com/v1.0"
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 GRAPH_TIMEOUT_SECONDS = 30
 GRAPH_WELL_KNOWN_FOLDERS = {"archive", "deleteditems", "drafts", "inbox", "junkemail", "outbox", "sentitems"}
+GRAPH_PAGE_SIZE = 50
+GRAPH_MAX_PAGES = 20
+# Re-read a window before the last success: Graph's clock is not ours, and a message can
+# land with a timestamp slightly before the moment we finished the previous run.
+# Re-fetching is free - the dedup on provider_message_id drops the duplicates.
+INCREMENTAL_OVERLAP_MINUTES = 30
+
+
+def incremental_since(source):
+    """Lower bound for the incremental fetch, or None on the first ever run."""
+    last_success = getattr(source, "last_success_at", None)
+    if not last_success:
+        return None
+    return last_success - timedelta(minutes=INCREMENTAL_OVERLAP_MINUTES)
 
 
 @dataclass
@@ -101,23 +115,62 @@ class GraphMailboxProvider(MailboxProvider):
         return token
 
     def _get_messages(self, token: str, source, limit: int) -> List[dict]:
-        top = max(1, min(int(limit or 50), 500))
+        """Fetch messages incrementally, oldest first, following Graph pagination.
+
+        The previous implementation asked for the newest N messages and stopped there.
+        If more than ``max_messages_per_run`` mails arrived between two runs (a nightly
+        batch of vendor reports, say), the older ones fell off the window and were never
+        imported: the next run again saw only the newest N. Reports were lost silently.
+
+        Two changes fix that:
+        - ``$filter`` on ``receivedDateTime`` from the last successful run (minus a safety
+          overlap, because Graph timestamps and our clock are not the same clock). Dedup
+          on the provider message id makes the overlap harmless.
+        - ascending order + ``@odata.nextLink`` pagination, so the backlog is drained from
+          the oldest message forward instead of the newest backwards.
+        """
+        page_size = max(1, min(int(limit or 50), GRAPH_PAGE_SIZE))
+        max_messages = max(1, int(limit or 50))
         folder = str(get_setting("GRAPH_MAIL_FOLDER", "") or "").strip() or os.getenv("GRAPH_MAIL_FOLDER", "").strip() or "Inbox"
         # internetMessageHeaders carries Authentication-Results (DKIM/SPF/DMARC), used to
         # tell a genuine vendor notification from a spoofed look-alike.
         select_fields = "id,internetMessageId,subject,from,toRecipients,receivedDateTime,body,hasAttachments,internetMessageHeaders"
-        params = urllib.parse.urlencode(
-            {
-                "$top": top,
-                "$select": select_fields,
-                "$orderby": "receivedDateTime desc",
-            }
-        )
+        query = {
+            "$top": page_size,
+            "$select": select_fields,
+            # Oldest first: a backlog must be drained from the bottom, never truncated
+            # from the top.
+            "$orderby": "receivedDateTime asc",
+        }
+        since = incremental_since(source)
+        if since:
+            query["$filter"] = f"receivedDateTime ge {since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+
         mailbox = urllib.parse.quote(source.mailbox_address, safe="")
         folder_part = self._resolve_folder_part(token, mailbox, folder)
-        url = f"{GRAPH_API_BASE_URL}/users/{mailbox}/mailFolders/{folder_part}/messages?{params}"
-        data = _request_json(url, headers=_graph_headers(token))
-        return data.get("value", [])
+        url = f"{GRAPH_API_BASE_URL}/users/{mailbox}/mailFolders/{folder_part}/messages?{urllib.parse.urlencode(query)}"
+
+        items: List[dict] = []
+        pages = 0
+        while url and len(items) < max_messages and pages < GRAPH_MAX_PAGES:
+            data = _request_json(url, headers=_graph_headers(token))
+            items.extend(data.get("value", []))
+            url = data.get("@odata.nextLink") or ""
+            pages += 1
+
+        if url and len(items) < max_messages:
+            # We stopped on the page cap, not because the mailbox was drained.
+            logger.warning(
+                "Graph pagination stopped at %s pages for source %s: more messages remain",
+                GRAPH_MAX_PAGES, source.code,
+            )
+        if len(items) > max_messages:
+            logger.info(
+                "Graph returned %s messages for source %s, capped at max_messages_per_run=%s; "
+                "the remainder will be picked up by the next run",
+                len(items), source.code, max_messages,
+            )
+        return items[:max_messages]
 
     def _resolve_folder_part(self, token: str, mailbox: str, folder: str) -> str:
         folder = folder.strip() or "Inbox"

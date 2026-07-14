@@ -68,6 +68,7 @@ def run_mailbox_ingestion(source: SecurityMailboxSource, *, limit: Optional[int]
         provider = get_provider(source)
         max_messages = limit if limit is not None else source.max_messages_per_run
         messages = provider.list_messages(source, limit=max_messages)
+        watermark = _watermark(source, messages)
 
         for raw_message in messages:
             try:
@@ -109,7 +110,7 @@ def run_mailbox_ingestion(source: SecurityMailboxSource, *, limit: Optional[int]
             "summaries": _pipeline_summaries[:5],
         }
 
-        source.last_success_at = timezone.now()
+        source.last_success_at = watermark
         source.last_error_message = ""
         if not dry_run:
             source.save(update_fields=["last_success_at", "last_error_message"])
@@ -174,6 +175,26 @@ def sender_matches_allowlist(raw_sender: str, allowlist_text: str) -> bool:
             if domain and sender.endswith("@" + domain):
                 return True
     return False
+
+
+def _watermark(source: SecurityMailboxSource, messages) -> datetime:
+    """Where the next incremental fetch should resume from.
+
+    NOT simply "now". The provider returns messages oldest-first and we cap the batch at
+    ``max_messages_per_run``: when a backlog is only partially drained, the messages we
+    did not fetch are NEWER than the ones we did. Advancing the watermark to `now` would
+    jump over them and lose them for good. Advance it to the newest message we actually
+    saw instead, so the next run resumes exactly where this one stopped.
+
+    Never moves backwards: with the overlap window we deliberately re-read old messages,
+    and dedup drops them.
+    """
+    seen = [message.received_at for message in messages if getattr(message, "received_at", None)]
+    candidate = max(seen) if seen else timezone.now()
+    previous = source.last_success_at
+    if previous and candidate < previous:
+        return previous
+    return candidate
 
 
 def should_accept_message(source: SecurityMailboxSource, raw_message: MailboxMessage) -> bool:

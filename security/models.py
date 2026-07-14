@@ -674,6 +674,14 @@ class SecurityMailboxSource(models.Model):
     body_include_text = models.TextField(blank=True)
     attachment_extensions = models.CharField(max_length=255, blank=True)
     max_messages_per_run = models.PositiveIntegerField(default=50)
+    expected_every_hours = models.PositiveSmallIntegerField(
+        default=0,
+        help_text=(
+            "How often a report is expected from this source, in hours (0 = no expectation). "
+            "A source that goes quiet raises an alert: the absence of a report is itself a "
+            "signal, and it is the one failure the system cannot see by looking at what arrives."
+        ),
+    )
     mark_as_read_after_import = models.BooleanField(default=False)
     process_attachments = models.BooleanField(default=True)
     process_email_body = models.BooleanField(default=True)

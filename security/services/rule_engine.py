@@ -24,6 +24,8 @@ def evaluate_security_rules():
             _evaluate_vpn(event)
         elif event.event_type == "watchguard_alert_candidate":
             _evaluate_watchguard_alert_candidate(event)
+        elif event.event_type == "source_silent":
+            _evaluate_source_silent(event)
         else:
             event.decision_trace = {"decision": "kpi_only", "reason": "No alert rule matched"}
             event.save(update_fields=["decision_trace"])
@@ -101,6 +103,49 @@ def _evaluate_vulnerability(event):
     else:
         event.decision_trace = {"decision": "kpi_only", "reason": "Vulnerability not both critical and exposed"}
         event.save(update_fields=["decision_trace"])
+
+
+def _evaluate_source_silent(event):
+    """A source that stopped reporting is an alert. Nothing else in the system can see it:
+    every other check reasons about data that arrived."""
+    payload = event.payload
+    rule = _get_rule("source_silent_beyond_expected")
+    if rule and not rule.enabled:
+        event.decision_trace = {"decision": "kpi_only", "reason": "Source heartbeat rule disabled", "rule": rule.code}
+        event.save(update_fields=["decision_trace"])
+        return
+
+    trace = {
+        "decision": "alert",
+        "rule": "Source silent beyond expected cadence => alert",
+        "reason": payload.get("detail"),
+        "source_code": payload.get("source_code"),
+        "expected_every_hours": payload.get("expected_every_hours"),
+        "hours_silent": payload.get("hours_silent"),
+        "last_report_at": payload.get("last_report_at"),
+        "last_run_at": payload.get("last_run_at"),
+    }
+    alert, alert_created = _get_or_create_active_alert(
+        source=event.source,
+        event=event,
+        title=f"Source silent: {payload.get('source_name') or payload.get('source_code')}",
+        severity=(rule.severity if rule else Severity.WARNING),
+        dedup_hash=event.dedup_hash,
+        decision_trace=trace,
+    )
+    trace["alert_created"] = alert_created
+    _store_alert_decision_trace(alert, trace, alert_created)
+    event.decision_trace = trace
+    event.save(update_fields=["decision_trace"])
+    build_evidence_container(event.source, alert.title, alert=alert, event=event, decision_trace=trace)
+    SecurityAlertActionLog.objects.create(
+        alert=alert,
+        action="alert_created" if alert_created else "alert_reused",
+        details=trace,
+    )
+    _mark_rule_triggered(rule)
+    if alert_created:
+        notify_alert_created(alert)
 
 
 def _alert_unreadable_vulnerability(event, payload):

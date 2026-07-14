@@ -26,6 +26,21 @@ Patch identifier: SEC-FIXTURE-01
 - `python manage.py test security.tests` - 677 tests, 21 new. The 8 pre-existing failures in `test_ai_memory_embeddings` / `test_ai_memory_evaluation` (`FieldError: Cannot resolve keyword 'document_id'`) are unrelated to this patch and unchanged.
 - `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes.
 
+### Fixed (SEC-INGEST-02)
+- Mailbox ingestion no longer loses a backlog. The Graph fetch asked for the newest N messages and stopped: if more than `max_messages_per_run` mails arrived between two runs (a nightly batch of vendor reports), the older ones fell out of the window and were **never** imported, because the next run again saw only the newest N. The fetch is now incremental (`$filter` on `receivedDateTime` from the last successful run, minus a 30-minute overlap absorbed by dedup), **ascending** (a backlog is drained from the oldest forward, not truncated from the newest backwards) and paginated (`@odata.nextLink`). Hitting the page cap is logged, never silent.
+- The ingestion watermark now follows the messages actually seen, not the wall clock. With an oldest-first fetch and a per-run cap, the messages left behind are *newer* than the ones fetched: advancing `last_success_at` to `now` would have jumped straight over them. It never moves backwards.
+
+### Added (SEC-HEARTBEAT-01)
+- Source heartbeat: **the absence of a report is now itself an alert.** Every other check in the system reasons about data that arrived, which left the most dangerous failure invisible - a source going quiet (the firewall stops emailing, a mailbox rule swallows the report, the export job dies) left every dashboard green, because there was nothing to turn them red.
+- New `SecurityMailboxSource.expected_every_hours` (migration `0012`, 0 = no expectation) plus `SECURITY_SOURCE_SILENCE_GRACE_HOURS` (default 6) so a report running slightly late is not an alert.
+- Two silences are told apart: **no data** (ingestion runs, nothing arrives) and **no run** (the scheduler itself is down) - the second cannot be diagnosed from the first, and is the one most likely to go unnoticed.
+- The verdict becomes an ordinary `SecurityEventRecord` (`source_silent`), so it flows through the existing rule engine, alert, evidence and notification paths. Deduplicated per source per day: a source quiet for a week is one alert, not a daily flood.
+- New `python manage.py check_security_source_heartbeat [--dry-run]`, to schedule alongside the ingestion job.
+
+### Validation (SEC-INGEST-02, SEC-HEARTBEAT-01)
+- `python manage.py test security.tests` - **742 tests, all green** (24 new).
+- `python manage.py check` - OK. `python manage.py makemigrations --check --dry-run` - no changes.
+
 ### Added (SEC-NOTIFY-01)
 - Outbound notification delivery. `SecurityNotificationChannel` was configuration with nothing behind it: the backend contained no `send_mail` and no webhook call, so a critical CVE raised at 22:00 reached nobody until somebody happened to open the dashboard. New `security/services/notifications.py` delivers alerts and remediation tickets over email and Teams webhooks.
 - New `SecurityNotificationLog` model (migration `0011`): every delivery attempt is audited (channel, alert/ticket, outcome, recipient count, error) and it is the source of truth for cooldown.
